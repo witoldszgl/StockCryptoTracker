@@ -21,6 +21,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,6 +76,23 @@ fun CryptoApp() {
     
     var selectedNavItem by remember { mutableStateOf(BottomNavItem.CRYPTO_LIST) }
     
+    // Update the tab based on the current destination
+    LaunchedEffect(currentRoute) {
+        when {
+            currentRoute == BottomNavItem.CRYPTO_LIST.route -> {
+                cryptoViewModel.setSelectedTab(Tab.ALL)
+                selectedNavItem = BottomNavItem.CRYPTO_LIST
+            }
+            currentRoute == BottomNavItem.FAVORITES.route -> {
+                cryptoViewModel.setSelectedTab(Tab.FAVORITES)
+                selectedNavItem = BottomNavItem.FAVORITES
+            }
+            currentRoute == BottomNavItem.PORTFOLIO.route -> {
+                selectedNavItem = BottomNavItem.PORTFOLIO
+            }
+        }
+    }
+    
     // Determine if bottom bar should be shown (not on detail screen)
     val showBottomBar = when {
         currentRoute?.startsWith("crypto_detail") == true -> false
@@ -108,23 +126,21 @@ fun CryptoApp() {
                             selected = selected,
                             onClick = {
                                 if (item != selectedNavItem) {
+                                    // Only update UI state when actually changing tabs
                                     selectedNavItem = item
-                                    navController.navigate(item.route) {
-                                        // Pop back stack up to the start destination
-                                        popUpTo(navController.graph.startDestinationId) {
-                                            saveState = true
-                                        }
-                                        // Avoid duplicate navigation
-                                        launchSingleTop = true
-                                        // Restore state if needed
-                                        restoreState = true
-                                    }
                                     
-                                    // When navigating to favorites, set the tab
-                                    if (item == BottomNavItem.FAVORITES) {
-                                        cryptoViewModel.setSelectedTab(Tab.FAVORITES)
-                                    } else if (item == BottomNavItem.CRYPTO_LIST) {
-                                        cryptoViewModel.setSelectedTab(Tab.ALL)
+                                    // Navigate only if we're not already on this route
+                                    if (currentRoute != item.route) {
+                                        navController.navigate(item.route) {
+                                            // Pop back stack up to the start destination
+                                            popUpTo(navController.graph.startDestinationId) {
+                                                saveState = true
+                                            }
+                                            // Avoid duplicate navigation
+                                            launchSingleTop = true
+                                            // Restore state if needed
+                                            restoreState = true
+                                        }
                                     }
                                 }
                             }
@@ -140,7 +156,6 @@ fun CryptoApp() {
             modifier = Modifier.padding(paddingValues)
         ) {
             composable(BottomNavItem.CRYPTO_LIST.route) {
-                cryptoViewModel.setSelectedTab(Tab.ALL)
                 CryptoListScreen(
                     onNavigateToDetail = { cryptoId ->
                         navController.navigate("crypto_detail/$cryptoId")
@@ -150,8 +165,6 @@ fun CryptoApp() {
             }
             
             composable(BottomNavItem.FAVORITES.route) {
-                // Reuse CryptoListScreen but ensure we're in FAVORITES tab
-                cryptoViewModel.setSelectedTab(Tab.FAVORITES)
                 CryptoListScreen(
                     onNavigateToDetail = { cryptoId ->
                         navController.navigate("crypto_detail/$cryptoId")
