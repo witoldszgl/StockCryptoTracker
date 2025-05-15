@@ -1,5 +1,7 @@
 package com.example.stockcryptotracker.data
 
+import com.example.stockcryptotracker.network.CryptoDetailResponse
+
 data class CryptoCurrency(
     val id: String,
     val symbol: String,
@@ -12,8 +14,33 @@ data class CryptoCurrency(
     val high24h: Double = 0.0,
     val low24h: Double = 0.0,
     val priceChangePercentage7d: Double = 0.0,
-    val priceChangePercentage30d: Double = 0.0
-)
+    val priceChangePercentage30d: Double = 0.0,
+    val marketCapRank: Int = 0
+) {
+    // Add companion object with a factory method to convert from CryptoDetailResponse
+    companion object {
+        fun fromCryptoDetailResponse(detail: CryptoDetailResponse): CryptoCurrency {
+            val currentPrice = detail.market_data.current_price["usd"] ?: 0.0
+            val marketCap = detail.market_data.market_cap["usd"] ?: 0L
+            
+            return CryptoCurrency(
+                id = detail.id,
+                symbol = detail.symbol,
+                name = detail.name,
+                image = detail.image.large,
+                currentPrice = currentPrice,
+                priceChangePercentage24h = detail.market_data.price_change_percentage_24h,
+                marketCap = marketCap,
+                totalVolume = detail.market_data.total_volume["usd"] ?: 0.0,
+                high24h = detail.market_data.high_24h["usd"] ?: 0.0,
+                low24h = detail.market_data.low_24h["usd"] ?: 0.0,
+                priceChangePercentage7d = detail.market_data.price_change_percentage_7d,
+                priceChangePercentage30d = detail.market_data.price_change_percentage_30d,
+                marketCapRank = detail.market_cap_rank?.toInt() ?: 0
+            )
+        }
+    }
+}
 
 data class CryptoResponse(
     val id: String,

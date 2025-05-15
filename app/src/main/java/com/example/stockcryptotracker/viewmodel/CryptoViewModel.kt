@@ -1,12 +1,16 @@
 package com.example.stockcryptotracker.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.stockcryptotracker.data.CryptoCurrency
+import com.example.stockcryptotracker.data.PriceHistoryPoint
 import com.example.stockcryptotracker.data.room.CryptoDatabase
+import com.example.stockcryptotracker.repository.CryptoCompareRepository
 import com.example.stockcryptotracker.repository.CryptoRepository
 import com.example.stockcryptotracker.repository.FavoritesRepository
+import com.example.stockcryptotracker.repository.TimeRange
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -19,13 +23,30 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.util.concurrent.ConcurrentHashMap
+import java.io.IOException
+import retrofit2.HttpException
 
+private const val TAG = "CryptoViewModel"
+private const val MAX_RETRIES = 3
+private const val DEFAULT_PAGE_SIZE = 20
+private const val RETRY_DELAY_MS = 1000L
+
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 class CryptoViewModel(application: Application) : AndroidViewModel(application) {
     private val cryptoRepository = CryptoRepository()
+    private val cryptoCompareRepository = CryptoCompareRepository()
     private val favoritesRepository: FavoritesRepository
     
     private val _allCryptoList = MutableStateFlow<List<CryptoCurrency>>(emptyList())
+    
+    // Pagination variables
+    private val _visibleItemsCount = MutableStateFlow(DEFAULT_PAGE_SIZE)
+    val visibleItemsCount: StateFlow<Int> = _visibleItemsCount.asStateFlow()
+    
+    private val _isLoadingMore = MutableStateFlow(false)
+    val isLoadingMore: StateFlow<Boolean> = _isLoadingMore.asStateFlow()
     
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -33,18 +54,25 @@ class CryptoViewModel(application: Application) : AndroidViewModel(application) 
     private val _selectedTab = MutableStateFlow(Tab.ALL)
     val selectedTab: StateFlow<Tab> = _selectedTab.asStateFlow()
     
+    private val _selectedCategory = MutableStateFlow(CryptoCategory.ALL)
+    val selectedCategory: StateFlow<CryptoCategory> = _selectedCategory.asStateFlow()
+    
     private val favoriteIds = MutableStateFlow<List<String>>(emptyList())
     
     // Cache for favorite status to prevent UI flickering
     private val favoriteStatusCache = ConcurrentHashMap<String, MutableStateFlow<Boolean>>()
     
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val cryptoList: StateFlow<List<CryptoCurrency>> = combine(
+    private val _selectedTimeRange = MutableStateFlow(TimeRange.DAYS_7)
+    val selectedTimeRange: StateFlow<TimeRange> = _selectedTimeRange.asStateFlow()
+    
+    @OptIn(ExperimentalCoroutinesApi::class, kotlinx.coroutines.FlowPreview::class)
+    val filteredCryptoList: StateFlow<List<CryptoCurrency>> = combine(
         _allCryptoList,
         _searchQuery,
         _selectedTab,
+        _selectedCategory,
         favoriteIds.debounce(100).distinctUntilChanged() // Add debounce to stabilize updates
-    ) { allCrypto, query, selectedTab, favoriteIds ->
+    ) { allCrypto, query, selectedTab, selectedCategory, favoriteIds ->
         // Filter by query
         val queriedList = if (query.isBlank()) {
             allCrypto
@@ -55,10 +83,18 @@ class CryptoViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
         
+        // Apply category filter
+        val categoryFilteredList = when (selectedCategory) {
+            CryptoCategory.ALL -> queriedList
+            CryptoCategory.TOP_GAINERS -> queriedList.sortedByDescending { it.priceChangePercentage24h }.take(10)
+            CryptoCategory.TOP_LOSERS -> queriedList.sortedBy { it.priceChangePercentage24h }.take(10)
+            CryptoCategory.MOST_ACTIVE -> queriedList.sortedByDescending { it.currentPrice }.take(10)
+        }
+        
         // Filter by tab
         when (selectedTab) {
-            Tab.ALL -> queriedList
-            Tab.FAVORITES -> queriedList.filter { crypto -> favoriteIds.contains(crypto.id) }
+            Tab.ALL -> categoryFilteredList
+            Tab.FAVORITES -> categoryFilteredList.filter { crypto -> favoriteIds.contains(crypto.id) }
         }
     }.distinctUntilChanged()
      .stateIn(
@@ -67,11 +103,54 @@ class CryptoViewModel(application: Application) : AndroidViewModel(application) 
         initialValue = emptyList()
     )
     
+    // Paginated crypto list that only shows visible items
+    val cryptoList: StateFlow<List<CryptoCurrency>> = combine(
+        filteredCryptoList,
+        _visibleItemsCount
+    ) { list, count ->
+        list.take(count)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+    
+    // Indicates whether there are more items to load
+    val canLoadMore: StateFlow<Boolean> = combine(
+        filteredCryptoList,
+        _visibleItemsCount
+    ) { list, count ->
+        count < list.size
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = false
+    )
+    
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
+    
+    // Detail view properties
+    private val _cryptoDetail = MutableStateFlow<CryptoCurrency?>(null)
+    val cryptoDetail: StateFlow<CryptoCurrency?> = _cryptoDetail.asStateFlow()
+    
+    private val _isLoadingDetail = MutableStateFlow(false)
+    val isLoadingDetail: StateFlow<Boolean> = _isLoadingDetail.asStateFlow()
+    
+    private val _errorDetail = MutableStateFlow<String?>(null)
+    val errorDetail: StateFlow<String?> = _errorDetail.asStateFlow()
+    
+    private val _priceHistory = MutableStateFlow<List<PriceHistoryPoint>>(emptyList())
+    val priceHistory: StateFlow<List<PriceHistoryPoint>> = _priceHistory.asStateFlow()
+    
+    private val _isLoadingPriceHistory = MutableStateFlow(false)
+    val isLoadingPriceHistory: StateFlow<Boolean> = _isLoadingPriceHistory.asStateFlow()
+    
+    private val _isFavorite = MutableStateFlow(false)
+    val isFavorite: StateFlow<Boolean> = _isFavorite.asStateFlow()
     
     init {
         val database = CryptoDatabase.getDatabase(application)
@@ -90,6 +169,32 @@ class CryptoViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
     
+    // Load more items when scrolling
+    fun loadMoreItems() {
+        val currentCount = _visibleItemsCount.value
+        val filteredListSize = filteredCryptoList.value.size
+        
+        if (currentCount < filteredListSize && !_isLoadingMore.value) {
+            viewModelScope.launch {
+                _isLoadingMore.value = true
+                
+                // Simulate network delay for smoother loading
+                delay(100)
+                
+                // Increase visible items by page size
+                val newCount = (currentCount + DEFAULT_PAGE_SIZE).coerceAtMost(filteredListSize)
+                _visibleItemsCount.value = newCount
+                
+                _isLoadingMore.value = false
+            }
+        }
+    }
+    
+    // Reset pagination when filters change
+    fun resetPagination() {
+        _visibleItemsCount.value = DEFAULT_PAGE_SIZE
+    }
+    
     private fun updateFavoriteCache(favoriteIds: List<String>) {
         // Update cached statuses based on the new favoriteIds list
         favoriteStatusCache.forEach { (cryptoId, flow) ->
@@ -99,10 +204,19 @@ class CryptoViewModel(application: Application) : AndroidViewModel(application) 
     
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
+        resetPagination()
     }
     
     fun setSelectedTab(tab: Tab) {
         _selectedTab.value = tab
+        resetPagination()
+    }
+    
+    fun setCategory(category: CryptoCategory) {
+        if (_selectedCategory.value != category) {
+            _selectedCategory.value = category
+            resetPagination()
+        }
     }
     
     fun isFavorite(cryptoId: String): StateFlow<Boolean> {
@@ -144,7 +258,7 @@ class CryptoViewModel(application: Application) : AndroidViewModel(application) 
             // If we're in favorites tab and unfavoriting an item
             if (_selectedTab.value == Tab.FAVORITES && isFavorite) {
                 // Force a crypto list update after a short delay
-                kotlinx.coroutines.delay(100)
+                delay(100)
                 loadCryptocurrencies()
             }
         }
@@ -155,19 +269,125 @@ class CryptoViewModel(application: Application) : AndroidViewModel(application) 
             _isLoading.value = true
             _error.value = null
             
-            cryptoRepository.getCryptocurrencies()
-                .onSuccess { cryptocurrencies ->
-                    _allCryptoList.value = cryptocurrencies
-                    _isLoading.value = false
+            fetchCryptocurrencies()
+        }
+    }
+    
+    private suspend fun fetchCryptocurrencies(attempt: Int = 1): Boolean {
+        _isLoading.value = true
+        _error.value = null
+        return try {
+            Log.d(TAG, "Fetching cryptocurrencies, attempt $attempt")
+            val cryptocurrencies = cryptoCompareRepository.getAllCryptos()
+            if (cryptocurrencies.isNotEmpty()) {
+                _allCryptoList.value = cryptocurrencies
+                true
+            } else {
+                if (attempt < MAX_RETRIES) {
+                    delay(RETRY_DELAY_MS)
+                    fetchCryptocurrencies(attempt + 1)
+                } else {
+                    _error.value = "Unable to load cryptocurrencies. Please try again later."
+                    false
                 }
-                .onFailure { error ->
-                    _error.value = error.message ?: "Unknown error occurred"
-                    _isLoading.value = false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching cryptocurrencies", e)
+            if (attempt < MAX_RETRIES) {
+                delay(RETRY_DELAY_MS)
+                fetchCryptocurrencies(attempt + 1)
+            } else {
+                _error.value = "Network error: ${e.message}"
+                false
+            }
+        } finally {
+            _isLoading.value = false
+        }
+    }
+    
+    fun fetchCryptoDetail(cryptoId: String) {
+        _isLoadingDetail.value = true
+        _errorDetail.value = null
+        viewModelScope.launch {
+            try {
+                Log.d(TAG, "Fetching crypto detail for ID: $cryptoId")
+                
+                // For testing - always convert "bitcoin" to BTC etc.
+                val effectiveId = when (cryptoId.lowercase()) {
+                    "bitcoin" -> "BTC"
+                    "ethereum" -> "ETH"
+                    "tether" -> "USDT"
+                    "binancecoin" -> "BNB"
+                    "ripple" -> "XRP"
+                    "solana" -> "SOL"
+                    else -> cryptoId
                 }
+                
+                val crypto = cryptoCompareRepository.getCryptoById(effectiveId)
+                if (crypto != null) {
+                    Log.d(TAG, "Successfully fetched crypto detail: ${crypto.name}")
+                    _cryptoDetail.value = crypto
+                    
+                    // Also fetch price history
+                    fetchPriceHistory(effectiveId)
+                    
+                    // Check if it's a favorite
+                    val isFavorite = favoritesRepository.isFavorite(cryptoId).first()
+                    _isFavorite.value = isFavorite
+                } else {
+                    Log.e(TAG, "Failed to fetch crypto detail: Returned null")
+                    _errorDetail.value = "Could not find cryptocurrency details. Please check your internet connection."
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching crypto detail", e)
+                _errorDetail.value = "Error loading details: ${e.message}"
+            } finally {
+                _isLoadingDetail.value = false
+            }
+        }
+    }
+    
+    fun fetchBitcoinForTesting() {
+        fetchCryptoDetail("BTC")
+    }
+    
+    private fun fetchPriceHistory(cryptoId: String) {
+        _isLoadingPriceHistory.value = true
+        viewModelScope.launch {
+            try {
+                val history = cryptoCompareRepository.getCryptoHistoricalData(
+                    cryptoId, 
+                    _selectedTimeRange.value
+                )
+                _priceHistory.value = history
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching price history", e)
+                // We don't set error here as it's a secondary data
+            } finally {
+                _isLoadingPriceHistory.value = false
+            }
+        }
+    }
+
+    fun setTimeRange(timeRange: TimeRange) {
+        if (_selectedTimeRange.value != timeRange) {
+            _selectedTimeRange.value = timeRange
+            _cryptoDetail.value?.let { crypto ->
+                fetchPriceHistory(crypto.id)
+            }
+        }
+    }
+
+    // Helper function to apply sorting and filtering
+    private fun applySortingAndFiltering(cryptos: List<CryptoCurrency>): List<CryptoCurrency> {
+        return when (_selectedCategory.value) {
+            CryptoCategory.ALL -> cryptos
+            CryptoCategory.TOP_GAINERS -> cryptos.sortedByDescending { it.priceChangePercentage24h }.take(10)
+            CryptoCategory.TOP_LOSERS -> cryptos.sortedBy { it.priceChangePercentage24h }.take(10)
+            CryptoCategory.MOST_ACTIVE -> cryptos.sortedByDescending { it.currentPrice }.take(10)
         }
     }
 }
 
-enum class Tab {
-    ALL, FAVORITES
-} 
+private fun Double.pow(exponent: Double): Double = Math.pow(this, exponent)
+

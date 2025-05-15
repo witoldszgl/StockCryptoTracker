@@ -6,13 +6,16 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [FavoriteCrypto::class, PortfolioItem::class], 
-    version = 2, 
+    entities = [FavoriteCrypto::class, PortfolioItem::class, FavoriteStock::class, StockPortfolioItem::class, PriceAlert::class], 
+    version = 5, 
     exportSchema = false
 )
 abstract class CryptoDatabase : RoomDatabase() {
     abstract fun favoriteCryptoDao(): FavoriteCryptoDao
     abstract fun portfolioDao(): PortfolioDao
+    abstract fun favoriteStockDao(): FavoriteStockDao
+    abstract fun stockPortfolioDao(): StockPortfolioDao
+    abstract fun priceAlertDao(): PriceAlertDao
     
     companion object {
         @Volatile

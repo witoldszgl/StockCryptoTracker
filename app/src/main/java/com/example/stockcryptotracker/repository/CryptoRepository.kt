@@ -1,5 +1,6 @@
 package com.example.stockcryptotracker.repository
 
+import android.util.Log
 import com.example.stockcryptotracker.data.CryptoCurrency
 import com.example.stockcryptotracker.data.PricePoint
 import com.example.stockcryptotracker.data.toCryptoCurrency
@@ -18,6 +19,7 @@ class CryptoRepository {
                 val response = apiService.getCryptocurrencies()
                 Result.success(response.map { it.toCryptoCurrency() })
             } catch (e: Exception) {
+                Log.e("CryptoRepository", "Error fetching cryptocurrencies", e)
                 Result.failure(e)
             }
         }

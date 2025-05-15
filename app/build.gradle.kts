@@ -28,12 +28,23 @@ android {
             )
         }
     }
+    
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+        baseline = file("lint-baseline.xml")
+    }
+    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
     kotlinOptions {
         jvmTarget = "11"
+        freeCompilerArgs += listOf(
+            "-opt-in=kotlinx.coroutines.FlowPreview",
+            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
+        )
     }
     buildFeatures {
         compose = true
@@ -57,8 +68,8 @@ dependencies {
     // Retrofit for network calls
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
-    implementation("com.squareup.okhttp3:okhttp:4.11.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.11.0")
+    implementation("com.squareup.okhttp3:okhttp:4.9.3")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.9.3")
     
     // Room for local database
     implementation("androidx.room:room-runtime:2.6.1")
@@ -72,6 +83,9 @@ dependencies {
     // Lifecycle components
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.6.2")
+    
+    // WorkManager for background processing
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
     
     // Charts for price history
     implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")

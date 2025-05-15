@@ -1,5 +1,6 @@
 package com.example.stockcryptotracker.repository
 
+import android.util.Log
 import com.example.stockcryptotracker.data.CryptoCurrency
 import com.example.stockcryptotracker.data.room.PortfolioDao
 import com.example.stockcryptotracker.data.room.PortfolioItem
@@ -56,10 +57,13 @@ class PortfolioRepository(private val portfolioDao: PortfolioDao) {
         portfolioItems.forEach { item ->
             val crypto = cryptoCurrencies.find { it.id == item.cryptoId }
             if (crypto != null) {
-                totalValue += crypto.currentPrice * item.quantity
+                val itemValue = crypto.currentPrice * item.quantity
+                Log.d("PortfolioRepository", "Crypto ${item.symbol}: ${item.quantity} x ${crypto.currentPrice} = $itemValue")
+                totalValue += itemValue
             }
         }
         
+        Log.d("PortfolioRepository", "Total portfolio value: $totalValue")
         return totalValue
     }
 } 
