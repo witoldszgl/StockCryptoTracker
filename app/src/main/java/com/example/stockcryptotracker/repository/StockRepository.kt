@@ -3,7 +3,7 @@ package com.example.stockcryptotracker.repository
 import android.util.Log
 import com.example.stockcryptotracker.data.Stock
 import com.example.stockcryptotracker.data.toStock
-import com.example.stockcryptotracker.network.PolygonApi
+import com.example.stockcryptotracker.network.AlphaVantageApi
 import com.example.stockcryptotracker.network.StockSearchResult
 import com.example.stockcryptotracker.data.PricePoint
 
@@ -13,7 +13,7 @@ class StockRepository {
     suspend fun getMostActiveStocks(): Result<List<Stock>> {
         return try {
             Log.d(TAG, "Fetching most active stocks")
-            val response = PolygonApi.getMostActiveStocks()
+            val response = AlphaVantageApi.getMostActiveStocks()
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body != null) {
@@ -37,7 +37,7 @@ class StockRepository {
     suspend fun getTopGainers(): Result<List<Stock>> {
         return try {
             Log.d(TAG, "Fetching top gainers")
-            val response = PolygonApi.getTopStocks()
+            val response = AlphaVantageApi.getTopStocks()
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body != null) {
@@ -61,7 +61,7 @@ class StockRepository {
     suspend fun getTopLosers(): Result<List<Stock>> {
         return try {
             Log.d(TAG, "Fetching top losers")
-            val response = PolygonApi.getTopStocks()
+            val response = AlphaVantageApi.getTopStocks()
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body != null) {
@@ -85,7 +85,7 @@ class StockRepository {
     suspend fun getStockQuote(symbol: String): Result<Stock> {
         return try {
             Log.d(TAG, "Fetching stock quote for $symbol")
-            val response = PolygonApi.getStockQuote(symbol)
+            val response = AlphaVantageApi.getStockQuote(symbol)
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body != null) {
@@ -109,7 +109,7 @@ class StockRepository {
     suspend fun getMultipleStocks(symbols: List<String>): Result<List<Stock>> {
         return try {
             Log.d(TAG, "Fetching multiple stocks: ${symbols.joinToString(", ")}")
-            val response = PolygonApi.getMultipleStocks(symbols)
+            val response = AlphaVantageApi.getMultipleStocks(symbols)
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body != null) {
@@ -133,7 +133,7 @@ class StockRepository {
     suspend fun searchStocks(query: String): Result<List<StockSearchResult>> {
         return try {
             Log.d(TAG, "Searching stocks with query: $query")
-            val response = PolygonApi.searchStocks(query)
+            val response = AlphaVantageApi.searchStocks(query)
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body != null) {
@@ -156,7 +156,7 @@ class StockRepository {
     suspend fun getAllStocks(): Result<List<Stock>> {
         return try {
             Log.d(TAG, "Fetching all stocks")
-            val response = PolygonApi.getAllStocks()
+            val response = AlphaVantageApi.getAllStocks()
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body != null) {
@@ -186,7 +186,7 @@ class StockRepository {
                 "full" -> 365
                 else -> 30
             }
-            val response = PolygonApi.getStockPriceHistory(symbol, days)
+            val response = AlphaVantageApi.getStockPriceHistory(symbol, days)
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body != null) {
@@ -209,7 +209,7 @@ class StockRepository {
     suspend fun getStockIntraday24h(symbol: String): Result<List<PricePoint>> {
         return try {
             Log.d(TAG, "Fetching 24h intraday data for $symbol")
-            val response = PolygonApi.getStockIntraday24h(symbol)
+            val response = AlphaVantageApi.getStockIntraday24h(symbol)
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body != null) {

@@ -19,7 +19,9 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -76,7 +78,16 @@ fun StockListScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                ),
+                actions = {
+                    // Add refresh button
+                    IconButton(onClick = { viewModel.refreshStocks() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh"
+                        )
+                    }
+                }
             )
         }
     ) { paddingValues ->
@@ -139,17 +150,34 @@ fun StockListScreen(
             ) {
                 when {
                     isLoading && stockList.isEmpty() -> {
-                        CircularProgressIndicator()
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CircularProgressIndicator()
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Loading data from API...",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                     }
                     error != null && stockList.isEmpty() -> {
                         Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(16.dp)
                         ) {
                             Text(
                                 text = "Error: $error",
                                 color = MaterialTheme.colorScheme.error,
-                                textAlign = TextAlign.Center
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.bodyLarge
                             )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = { viewModel.refreshStocks() }
+                            ) {
+                                Text("Try Again")
+                            }
                         }
                     }
                     searchQuery.isNotEmpty() && searchResults.isNotEmpty() -> {

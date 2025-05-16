@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharingStarted
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.delay
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 class StockViewModel(application: Application) : AndroidViewModel(application) {
@@ -44,6 +45,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     
     private val _favoriteIds = MutableStateFlow<List<String>>(emptyList())
     val favoriteIds: StateFlow<List<String>> = _favoriteIds.asStateFlow()
+    
+    // Added retry count to track and limit API retry attempts
+    private var apiRetryCount = 0
+    private val MAX_RETRY_COUNT = 3
     
     // Cache for favorite status to prevent UI flickering
     private val favoriteStatusCache = ConcurrentHashMap<String, MutableStateFlow<Boolean>>()
@@ -165,9 +170,39 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
             result.onSuccess { stocks ->
                 _allStockList.value = stocks
                 _isLoading.value = false
+                // Reset retry count on success
+                apiRetryCount = 0
             }.onFailure { error ->
-                _error.value = error.message ?: "Unknown error occurred"
+                handleApiError(error)
+            }
+        }
+    }
+    
+    // New helper function to handle API errors
+    private fun handleApiError(error: Throwable) {
+        val errorMessage = error.message ?: "Unknown error occurred"
+        
+        // Check if it's a rate limit error
+        if (errorMessage.contains("rate limit", ignoreCase = true) || 
+            errorMessage.contains("429", ignoreCase = true)) {
+            
+            _error.value = "Rate limit exceeded. Please try again later."
+        } else {
+            // For other errors, check if we should retry
+            if (apiRetryCount < MAX_RETRY_COUNT) {
+                apiRetryCount++
+                _error.value = "API error (attempt $apiRetryCount/$MAX_RETRY_COUNT). Retrying..."
+                
+                // Retry after a delay
+                viewModelScope.launch {
+                    delay(2000) // Wait 2 seconds before retry
+                    loadStocks()
+                }
+            } else {
+                // Max retries reached, show final error
+                _error.value = "Failed to load data after multiple attempts. Please check your connection and try again."
                 _isLoading.value = false
+                apiRetryCount = 0
             }
         }
     }
@@ -183,10 +218,16 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
                     _isLoading.value = false
                 }
                 .onFailure { error ->
-                    _error.value = error.message ?: "Unknown error occurred"
+                    _error.value = "Error searching: ${error.message ?: "Unknown error"}"
                     _isLoading.value = false
                 }
         }
+    }
+    
+    // New function to allow manual refresh of data
+    fun refreshStocks() {
+        apiRetryCount = 0 // Reset retry count
+        loadStocks()
     }
     
     fun getStockDetail(symbol: String, onResult: (Result<Stock>) -> Unit) {

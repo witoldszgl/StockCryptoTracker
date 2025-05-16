@@ -42,6 +42,7 @@ import com.example.stockcryptotracker.ui.components.CryptoListItem
 import com.example.stockcryptotracker.viewmodel.CryptoCategory
 import com.example.stockcryptotracker.viewmodel.CryptoViewModel
 import com.example.stockcryptotracker.viewmodel.Tab as ViewModelTab
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +61,19 @@ fun CryptoListScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedTab by viewModel.selectedTab.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
+    
+    // Automatyczne odświeżanie listy co 2 minuty
+    LaunchedEffect(key1 = Unit) {
+        while (true) {
+            delay(2 * 60 * 1000L) // 2 minuty
+            viewModel.loadCryptocurrencies()
+        }
+    }
+    
+    // Początkowe ładowanie listy
+    LaunchedEffect(key1 = Unit) {
+        viewModel.loadCryptocurrencies()
+    }
 
     Scaffold(
         topBar = {

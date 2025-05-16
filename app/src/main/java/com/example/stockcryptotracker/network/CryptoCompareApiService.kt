@@ -10,14 +10,14 @@ interface CryptoCompareApiService {
     suspend fun getTopCryptos(
         @Query("limit") limit: Int = 100,
         @Query("tsym") currency: String = "USD",
-        @Query("api_key") apiKey: String
+        @Query("api_key") apiKey: String? = null
     ): CryptoCompareResponse
     
     @GET("data/pricemultifull")
     suspend fun getCryptoDetails(
         @Query("fsyms") symbol: String,
         @Query("tsyms") currency: String = "USD",
-        @Query("api_key") apiKey: String
+        @Query("api_key") apiKey: String? = null
     ): CryptoCompareDetailResponse
     
     @GET("data/v2/histoday")
@@ -26,7 +26,7 @@ interface CryptoCompareApiService {
         @Query("tsym") currency: String = "USD",
         @Query("limit") limit: Int = 30,
         @Query("aggregate") aggregate: Int = 1,
-        @Query("api_key") apiKey: String
+        @Query("api_key") apiKey: String? = null
     ): CryptoCompareHistoricalResponse
     
     @GET("data/v2/histohour")
@@ -35,7 +35,7 @@ interface CryptoCompareApiService {
         @Query("tsym") currency: String = "USD",
         @Query("limit") limit: Int = 24,
         @Query("aggregate") aggregate: Int = 1,
-        @Query("api_key") apiKey: String
+        @Query("api_key") apiKey: String? = null
     ): CryptoCompareHistoricalResponse
     
     @GET("data/v2/histominute")
@@ -44,7 +44,7 @@ interface CryptoCompareApiService {
         @Query("tsym") currency: String = "USD",
         @Query("limit") limit: Int = 60,
         @Query("aggregate") aggregate: Int = 1,
-        @Query("api_key") apiKey: String
+        @Query("api_key") apiKey: String? = null
     ): CryptoCompareHistoricalResponse
 }
 

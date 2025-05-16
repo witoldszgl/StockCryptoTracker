@@ -448,11 +448,10 @@ fun StockDetailScreen(
                         
                         // Disclaimer
                         Text(
-                            text = "Data provided by Alpha Vantage",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth()
+                            text = "Data provided by Polygon.io",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(top = 8.dp)
                         )
                     }
                 }

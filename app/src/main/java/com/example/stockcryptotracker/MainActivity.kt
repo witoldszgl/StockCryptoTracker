@@ -19,14 +19,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.filled.CurrencyBitcoin
+import androidx.compose.material.icons.automirrored.filled.ShowChart
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.CurrencyBitcoin
+import androidx.compose.material.icons.automirrored.outlined.ShowChart
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -118,15 +120,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    CryptoApp(
-                        onTestNotification = { 
-                            if (checkNotificationPermission()) {
-                                sendTestNotification()
-                            } else {
-                                requestNotificationPermission()
-                            }
-                        }
-                    )
+                    CryptoApp()
                 }
             }
         }
@@ -212,7 +206,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun CryptoApp(onTestNotification: () -> Unit = {}) {
+fun CryptoApp() {
     val navController = rememberNavController()
     val cryptoViewModel: CryptoViewModel = viewModel()
     val portfolioViewModel: PortfolioViewModel = viewModel()
@@ -265,11 +259,11 @@ fun CryptoApp(onTestNotification: () -> Unit = {}) {
                             icon = { 
                                 when (item) {
                                     BottomNavItem.CRYPTO_LIST -> Icon(
-                                        imageVector = if (selected) Icons.Filled.Home else Icons.Outlined.Home,
+                                        imageVector = if (selected) Icons.Filled.CurrencyBitcoin else Icons.Outlined.CurrencyBitcoin,
                                         contentDescription = item.title
                                     )
                                     BottomNavItem.STOCKS -> Icon(
-                                        imageVector = if (selected) Icons.Filled.Settings else Icons.Outlined.Settings,
+                                        imageVector = if (selected) Icons.AutoMirrored.Filled.ShowChart else Icons.AutoMirrored.Outlined.ShowChart,
                                         contentDescription = item.title
                                     )
                                     BottomNavItem.FAVORITES -> Icon(
@@ -277,7 +271,7 @@ fun CryptoApp(onTestNotification: () -> Unit = {}) {
                                         contentDescription = item.title
                                     )
                                     BottomNavItem.PORTFOLIO -> Icon(
-                                        imageVector = if (selected) Icons.Filled.Settings else Icons.Outlined.Settings,
+                                        imageVector = if (selected) Icons.Filled.AccountBalanceWallet else Icons.Outlined.AccountBalanceWallet,
                                         contentDescription = item.title
                                     )
                                     BottomNavItem.ALERTS -> {
@@ -340,24 +334,12 @@ fun CryptoApp(onTestNotification: () -> Unit = {}) {
             modifier = Modifier.padding(paddingValues)
         ) {
             composable(BottomNavItem.CRYPTO_LIST.route) {
-                // Dodaj przycisk testowy do ekranu listy kryptowalut
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Column {
-                        Button(
-                            onClick = onTestNotification,
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
-                        ) {
-                            Text("Test Powiadomień")
-                        }
-                        
-                        CryptoListScreen(
-                            onNavigateToDetail = { cryptoId ->
-                                navController.navigate("crypto_detail/$cryptoId")
-                            },
-                            viewModel = cryptoViewModel
-                        )
-                    }
-                }
+                CryptoListScreen(
+                    onNavigateToDetail = { cryptoId ->
+                        navController.navigate("crypto_detail/$cryptoId")
+                    },
+                    viewModel = cryptoViewModel
+                )
             }
             
             composable(BottomNavItem.STOCKS.route) {

@@ -11,6 +11,8 @@ import com.example.stockcryptotracker.repository.CryptoCompareRepository
 import com.example.stockcryptotracker.repository.CryptoRepository
 import com.example.stockcryptotracker.repository.FavoritesRepository
 import com.example.stockcryptotracker.repository.TimeRange
+import com.example.stockcryptotracker.viewmodel.CryptoCategory
+import com.example.stockcryptotracker.viewmodel.Tab
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -30,7 +32,7 @@ import retrofit2.HttpException
 
 private const val TAG = "CryptoViewModel"
 private const val MAX_RETRIES = 3
-private const val DEFAULT_PAGE_SIZE = 20
+private const val DEFAULT_PAGE_SIZE = 50
 private const val RETRY_DELAY_MS = 1000L
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
@@ -84,18 +86,16 @@ class CryptoViewModel(application: Application) : AndroidViewModel(application) 
         }
         
         // Apply category filter
-        val categoryFilteredList = when (selectedCategory) {
-            CryptoCategory.ALL -> queriedList
-            CryptoCategory.TOP_GAINERS -> queriedList.sortedByDescending { it.priceChangePercentage24h }.take(10)
-            CryptoCategory.TOP_LOSERS -> queriedList.sortedBy { it.priceChangePercentage24h }.take(10)
-            CryptoCategory.MOST_ACTIVE -> queriedList.sortedByDescending { it.currentPrice }.take(10)
-        }
+        val categoryFilteredList = applySortingAndFiltering(queriedList, selectedCategory)
         
         // Filter by tab
-        when (selectedTab) {
-            Tab.ALL -> categoryFilteredList
-            Tab.FAVORITES -> categoryFilteredList.filter { crypto -> favoriteIds.contains(crypto.id) }
+        val finalList = if (selectedTab == Tab.ALL) {
+            categoryFilteredList
+        } else {
+            categoryFilteredList.filter { crypto -> favoriteIds.contains(crypto.id) }
         }
+        
+        finalList
     }.distinctUntilChanged()
      .stateIn(
         scope = viewModelScope,
@@ -279,14 +279,21 @@ class CryptoViewModel(application: Application) : AndroidViewModel(application) 
         return try {
             Log.d(TAG, "Fetching cryptocurrencies, attempt $attempt")
             val cryptocurrencies = cryptoCompareRepository.getAllCryptos()
+            
+            Log.d(TAG, "Fetched ${cryptocurrencies.size} cryptocurrencies from repository")
+            
             if (cryptocurrencies.isNotEmpty()) {
                 _allCryptoList.value = cryptocurrencies
+                Log.d(TAG, "Successfully updated cryptocurrency list with ${cryptocurrencies.size} items")
                 true
             } else {
+                Log.e(TAG, "Repository returned empty cryptocurrency list")
                 if (attempt < MAX_RETRIES) {
+                    Log.d(TAG, "Retrying cryptocurrency fetch, attempt ${attempt + 1} of $MAX_RETRIES")
                     delay(RETRY_DELAY_MS)
                     fetchCryptocurrencies(attempt + 1)
                 } else {
+                    Log.e(TAG, "Max retries reached, showing error message to user")
                     _error.value = "Unable to load cryptocurrencies. Please try again later."
                     false
                 }
@@ -294,9 +301,11 @@ class CryptoViewModel(application: Application) : AndroidViewModel(application) 
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching cryptocurrencies", e)
             if (attempt < MAX_RETRIES) {
+                Log.d(TAG, "Retrying after exception, attempt ${attempt + 1} of $MAX_RETRIES")
                 delay(RETRY_DELAY_MS)
                 fetchCryptocurrencies(attempt + 1)
             } else {
+                Log.e(TAG, "Max retries reached after exception, showing error message to user")
                 _error.value = "Network error: ${e.message}"
                 false
             }
@@ -312,14 +321,41 @@ class CryptoViewModel(application: Application) : AndroidViewModel(application) 
             try {
                 Log.d(TAG, "Fetching crypto detail for ID: $cryptoId")
                 
-                // For testing - always convert "bitcoin" to BTC etc.
-                val effectiveId = when (cryptoId.lowercase()) {
-                    "bitcoin" -> "BTC"
-                    "ethereum" -> "ETH"
-                    "tether" -> "USDT"
-                    "binancecoin" -> "BNB"
-                    "ripple" -> "XRP"
-                    "solana" -> "SOL"
+                // Rozszerzone mapowanie ID na symbole dla popularnych kryptowalut
+                val effectiveId = when {
+                    // Top 10
+                    cryptoId.lowercase() == "bitcoin" -> "BTC"
+                    cryptoId.lowercase() == "ethereum" -> "ETH"
+                    cryptoId.lowercase() == "tether" -> "USDT"
+                    cryptoId.lowercase() == "binancecoin" -> "BNB"
+                    cryptoId.lowercase() == "solana" -> "SOL"
+                    cryptoId.lowercase() == "ripple" || cryptoId.lowercase() == "xrp" -> "XRP"
+                    cryptoId.lowercase() == "usd-coin" -> "USDC"
+                    cryptoId.lowercase() == "staked-ether" -> "STETH"
+                    cryptoId.lowercase() == "avalanche-2" || cryptoId.lowercase() == "avalanche" -> "AVAX"
+                    cryptoId.lowercase() == "dogecoin" -> "DOGE"
+                    // 11-20
+                    cryptoId.lowercase() == "tron" -> "TRX"
+                    cryptoId.lowercase() == "chainlink" -> "LINK"
+                    cryptoId.lowercase() == "toncoin" -> "TON"
+                    cryptoId.lowercase() == "polkadot" -> "DOT"
+                    cryptoId.lowercase() == "polygon" -> "MATIC"
+                    cryptoId.lowercase() == "shiba-inu" -> "SHIB"
+                    cryptoId.lowercase() == "dai" -> "DAI"
+                    cryptoId.lowercase() == "wrapped-bitcoin" -> "WBTC"
+                    cryptoId.lowercase() == "litecoin" -> "LTC"
+                    cryptoId.lowercase() == "bitcoin-cash" -> "BCH"
+                    // 21-30
+                    cryptoId.lowercase() == "uniswap" -> "UNI"
+                    cryptoId.lowercase() == "cardano" -> "ADA"
+                    cryptoId.lowercase() == "leo-token" -> "LEO"
+                    cryptoId.lowercase() == "cosmos" -> "ATOM"
+                    cryptoId.lowercase() == "ethereum-classic" -> "ETC"
+                    cryptoId.lowercase() == "okb" -> "OKB"
+                    cryptoId.lowercase() == "stellar" -> "XLM"
+                    cryptoId.lowercase() == "near" -> "NEAR"
+                    cryptoId.lowercase() == "internet-computer" -> "ICP"
+                    cryptoId.lowercase() == "injective-protocol" -> "INJ"
                     else -> cryptoId
                 }
                 
@@ -379,12 +415,12 @@ class CryptoViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // Helper function to apply sorting and filtering
-    private fun applySortingAndFiltering(cryptos: List<CryptoCurrency>): List<CryptoCurrency> {
-        return when (_selectedCategory.value) {
-            CryptoCategory.ALL -> cryptos
-            CryptoCategory.TOP_GAINERS -> cryptos.sortedByDescending { it.priceChangePercentage24h }.take(10)
-            CryptoCategory.TOP_LOSERS -> cryptos.sortedBy { it.priceChangePercentage24h }.take(10)
-            CryptoCategory.MOST_ACTIVE -> cryptos.sortedByDescending { it.currentPrice }.take(10)
+    private fun applySortingAndFiltering(cryptos: List<CryptoCurrency>, category: CryptoCategory): List<CryptoCurrency> {
+        return when (category) {
+            CryptoCategory.ALL -> cryptos  // Zachowujemy oryginalną kolejność, która już ma popularne kryptowaluty na górze
+            CryptoCategory.TOP_GAINERS -> cryptos.sortedByDescending { it.priceChangePercentage24h }.take(20)
+            CryptoCategory.TOP_LOSERS -> cryptos.sortedBy { it.priceChangePercentage24h }.take(20)
+            CryptoCategory.MOST_ACTIVE -> cryptos.sortedByDescending { it.totalVolume }.take(20)
         }
     }
 }
