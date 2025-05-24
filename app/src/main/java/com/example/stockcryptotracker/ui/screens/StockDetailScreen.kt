@@ -1,47 +1,19 @@
 package com.example.stockcryptotracker.ui.screens
 
+import android.text.Html
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.Star
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,8 +26,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.example.stockcryptotracker.data.PricePoint
-import com.example.stockcryptotracker.viewmodel.StockDetailViewModel
+import com.example.stockcryptotracker.data.Stock
+import com.example.stockcryptotracker.data.TimeRange
+import com.example.stockcryptotracker.data.PriceHistoryPoint
+import com.example.stockcryptotracker.ui.components.PriceAlertDialog
+import com.example.stockcryptotracker.ui.screens.DataSourceBanner
+import com.example.stockcryptotracker.viewmodel.PriceAlertViewModel
+import com.example.stockcryptotracker.viewmodel.StockViewModel
 import com.patrykandpatrick.vico.compose.axis.horizontal.rememberBottomAxis
 import com.patrykandpatrick.vico.compose.axis.vertical.rememberStartAxis
 import com.patrykandpatrick.vico.compose.chart.Chart
@@ -63,46 +40,43 @@ import com.patrykandpatrick.vico.compose.chart.line.lineChart
 import com.patrykandpatrick.vico.core.entry.FloatEntry
 import com.patrykandpatrick.vico.core.entry.entryModelOf
 import java.text.NumberFormat
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import androidx.compose.foundation.layout.PaddingValues
+import java.util.*
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StockDetailScreen(
     symbol: String,
     onBackClick: () -> Unit,
-    viewModel: StockDetailViewModel = viewModel()
+    viewModel: StockViewModel = viewModel(),
+    alertViewModel: PriceAlertViewModel = viewModel(),
+    onSetAlert: (String, Double) -> Unit = { _, _ -> }
 ) {
     val stockDetail by viewModel.stockDetail.collectAsState()
-    val priceHistory by viewModel.priceHistory.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-    val isLoadingHistory by viewModel.isLoadingHistory.collectAsState()
     val error by viewModel.error.collectAsState()
-    val isFavorite by viewModel.isFavorite.collectAsState()
+    val priceHistory by viewModel.priceHistory.collectAsState()
+    val isLoadingPriceHistory by viewModel.isLoadingPriceHistory.collectAsState()
     val selectedTimeRange by viewModel.selectedTimeRange.collectAsState()
+    val isUsingMockData by viewModel.isUsingMockData.collectAsState()
+    val isUsingSavedData by viewModel.isUsingSavedData.collectAsState()
+    var showSetAlertDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(key1 = symbol) {
+    LaunchedEffect(symbol) {
         viewModel.loadStockDetail(symbol)
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stockDetail?.name ?: "Stock Details") },
+                title = { Text(symbol) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    // Favorite action button
-                    IconButton(onClick = { viewModel.toggleFavorite() }) {
                         Icon(
-                            imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
-                            contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
-                            tint = if (isFavorite) Color(0xFFFFC107) else MaterialTheme.colorScheme.onSurfaceVariant
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
                         )
                     }
                 },
@@ -111,123 +85,115 @@ fun StockDetailScreen(
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues),
-            contentAlignment = Alignment.Center
+                .padding(paddingValues)
         ) {
-            when {
-                isLoading && stockDetail == null -> {
-                    CircularProgressIndicator()
-                }
-                error != null && stockDetail == null -> {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-                        Text(
-                            text = "Error: $error",
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-                stockDetail != null -> {
-                    val stock = stockDetail!!
-                    
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            } else if (error != null) {
+                Text(
+                    text = error ?: "Unknown error occurred",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(16.dp)
+                )
+            } else {
+                stockDetail?.let { stock ->
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
                             .padding(16.dp)
                     ) {
-                        // Header with image and basic info
+                        // Add MockDataBanner at the top
+                        DataSourceBanner(
+                            isVisible = isUsingMockData,
+                            isUsingMockData = isUsingMockData,
+                            isUsingSavedData = isUsingSavedData,
+                            onRefreshClick = { viewModel.tryUsingRealData() }
+                        )
+                        
+                        // Header with stock info
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 16.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Stock logo
-                            AsyncImage(
-                                model = stock.logoUrl,
-                                contentDescription = "${stock.name} logo",
-                                modifier = Modifier
-                                    .size(64.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                                contentScale = ContentScale.Fit
-                            )
+                            // Stock logo and name
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (stock.image.isNotEmpty()) {
+                                    AsyncImage(
+                                        model = stock.image,
+                                        contentDescription = "${stock.name} logo",
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                Column {
+                                    Text(
+                                        text = stock.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = stock.symbol,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                             
-                            Spacer(modifier = Modifier.width(16.dp))
-                            
-                            Column {
+                            // Price and change
+                            Column(
+                                horizontalAlignment = Alignment.End
+                            ) {
                                 Text(
-                                    text = stock.symbol,
+                                    text = formatCurrency(stock.currentPrice),
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold
                                 )
                                 
-                                Text(
-                                    text = stock.name,
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
+                                val priceChangeColor = if (stock.priceChangePercentage24h >= 0) {
+                                    Color(0xFF4CAF50) // Green for positive change
+                                } else {
+                                    Color(0xFFF44336) // Red for negative change
+                                }
                                 
                                 Text(
-                                    text = stock.exchange,
+                                    text = formatPercentage(stock.priceChangePercentage24h),
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                    color = priceChangeColor
                                 )
                             }
                         }
                         
-                        HorizontalDivider()
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        // Price and change
-                        Card(
+                        // Price Alert Button
+                        OutlinedButton(
+                            onClick = { showSetAlertDialog = true },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp)
+                                .padding(vertical = 16.dp)
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp)
-                            ) {
-                                Text(
-                                    text = "Current Price",
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                
-                                Spacer(modifier = Modifier.height(8.dp))
-                                
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = formatCurrency(stock.price),
-                                        style = MaterialTheme.typography.headlineMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    
-                                    val changeColor = if (stock.change >= 0) Color(0xFF4CAF50) else Color(0xFFF44336)
-                                    
-                                    Text(
-                                        text = "${formatCurrency(stock.change)} (${formatPercentage(stock.changePercent)})",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = changeColor
-                                    )
-                                }
-                            }
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = "Notifications",
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                            Text("Set Price Alert")
                         }
-                        
-                        Spacer(modifier = Modifier.height(16.dp))
                         
                         // Price chart
                         Card(
@@ -241,126 +207,82 @@ fun StockDetailScreen(
                                     .padding(16.dp)
                             ) {
                                 Text(
-                                    text = "Price History",
-                                    style = MaterialTheme.typography.titleMedium
+                                    text = "Price Chart",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 8.dp)
                                 )
                                 
-                                Spacer(modifier = Modifier.height(8.dp))
-                                
-                                // Time range selection buttons
+                                // Time range selector
                                 Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 16.dp)
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly
                                 ) {
-                                    StockTimeRangeButton(
+                                    TimeRangeButton(
                                         text = "1H",
-                                        selected = selectedTimeRange == "1",
-                                        onClick = { viewModel.changeTimeRange("1") }
+                                        isSelected = selectedTimeRange == TimeRange.HOUR_1,
+                                        onClick = { viewModel.loadPriceHistory(stock.symbol, TimeRange.HOUR_1) }
                                     )
-                                    StockTimeRangeButton(
+                                    TimeRangeButton(
                                         text = "24H",
-                                        selected = selectedTimeRange == "24",
-                                        onClick = { viewModel.changeTimeRange("24") }
+                                        isSelected = selectedTimeRange == TimeRange.HOUR_24,
+                                        onClick = { viewModel.loadPriceHistory(stock.symbol, TimeRange.HOUR_24) }
                                     )
-                                    StockTimeRangeButton(
+                                    TimeRangeButton(
                                         text = "7D",
-                                        selected = selectedTimeRange == "7",
-                                        onClick = { viewModel.changeTimeRange("7") }
+                                        isSelected = selectedTimeRange == TimeRange.DAYS_7,
+                                        onClick = { viewModel.loadPriceHistory(stock.symbol, TimeRange.DAYS_7) }
                                     )
-                                    StockTimeRangeButton(
+                                    TimeRangeButton(
                                         text = "30D",
-                                        selected = selectedTimeRange == "30",
-                                        onClick = { viewModel.changeTimeRange("30") }
+                                        isSelected = selectedTimeRange == TimeRange.DAYS_30,
+                                        onClick = { viewModel.loadPriceHistory(stock.symbol, TimeRange.DAYS_30) }
                                     )
-                                    StockTimeRangeButton(
+                                    TimeRangeButton(
                                         text = "90D",
-                                        selected = selectedTimeRange == "90",
-                                        onClick = { viewModel.changeTimeRange("90") }
+                                        isSelected = selectedTimeRange == TimeRange.DAYS_90,
+                                        onClick = { viewModel.loadPriceHistory(stock.symbol, TimeRange.DAYS_90) }
                                     )
-                                    StockTimeRangeButton(
+                                    TimeRangeButton(
                                         text = "1Y",
-                                        selected = selectedTimeRange == "1Y",
-                                        onClick = { viewModel.changeTimeRange("1Y") }
+                                        isSelected = selectedTimeRange == TimeRange.YEAR_1,
+                                        onClick = { viewModel.loadPriceHistory(stock.symbol, TimeRange.YEAR_1) }
                                     )
                                 }
                                 
                                 Spacer(modifier = Modifier.height(16.dp))
                                 
-                                // Price chart
-                                if (isLoadingHistory) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(200.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(48.dp),
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                } else if (priceHistory.isNotEmpty()) {
-                                    // Podsumowanie cenowe i wykres
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        // Podsumowanie dla wybranego zakresu
-                                        PriceSummary(
-                                            stock = stock,
-                                            priceHistory = priceHistory,
-                                            timeRange = selectedTimeRange
-                                        )
-                                        
-                                        // Wykres
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(200.dp)
-                                        ) {
-                                            // Convert price history to chart entries
-                                            val entries = priceHistory.mapIndexed { index, pricePoint ->
-                                                FloatEntry(index.toFloat(), pricePoint.price.toFloat())
-                                            }
-                                            
-                                            // Display chart
-                                            Chart(
-                                                chart = lineChart(),
-                                                model = entryModelOf(entries),
-                                                startAxis = rememberStartAxis(),
-                                                bottomAxis = rememberBottomAxis(
-                                                    valueFormatter = { value, _ ->
-                                                        if (value.toInt() < priceHistory.size) {
-                                                            formatAxisDate(priceHistory[value.toInt()].timestamp)
-                                                        } else {
-                                                            ""
-                                                        }
-                                                    }
-                                                )
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(200.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(200.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isLoadingPriceHistory) {
+                                        CircularProgressIndicator()
+                                    } else if (priceHistory.isEmpty()) {
                                         Text(
-                                            text = "No price history data available",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                            text = "No price data available",
+                                            textAlign = TextAlign.Center
+                                        )
+                                    } else {
+                                        // Convert data for chart
+                                        val entries = priceHistory.mapIndexed { index, data ->
+                                            FloatEntry(index.toFloat(), data.price.toFloat())
+                                        }
+                                        
+                                        Chart(
+                                            chart = lineChart(),
+                                            model = entryModelOf(entries),
+                                            startAxis = rememberStartAxis(),
+                                            bottomAxis = rememberBottomAxis()
                                         )
                                     }
                                 }
                             }
                         }
                         
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        // Additional details
+                        // Stock details
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -372,309 +294,105 @@ fun StockDetailScreen(
                                     .padding(16.dp)
                             ) {
                                 Text(
-                                    text = "Details",
-                                    style = MaterialTheme.typography.titleMedium
+                                    text = "Stock Details",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 8.dp)
                                 )
                                 
-                                Spacer(modifier = Modifier.height(8.dp))
-                                
-                                // Volume
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "Volume",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                    )
-                                    
-                                    Text(
-                                        text = formatVolume(stock.volume ?: 0),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                
-                                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                                
-                                // Market Cap
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "Market Cap",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                    )
-                                    
-                                    Text(
-                                        text = if (stock.marketCap != null) formatMarketCap(stock.marketCap) else "N/A",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                
-                                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                                
-                                // Exchange
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "Exchange",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                    )
-                                    
-                                    Text(
-                                        text = stock.exchange,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                DetailRow(label = "Market Cap", value = formatCurrency(stock.marketCap))
+                                DetailRow(label = "24h High", value = formatCurrency(stock.high24h))
+                                DetailRow(label = "24h Low", value = formatCurrency(stock.low24h))
+                                DetailRow(label = "24h Volume", value = formatNumber(stock.totalVolume))
                             }
                         }
-                        
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        // Disclaimer
-                        Text(
-                            text = "Data provided by Polygon.io",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
                     }
                 }
             }
         }
     }
+    
+    if (showSetAlertDialog) {
+        PriceAlertDialog(
+            symbol = symbol,
+            currentPrice = stockDetail?.currentPrice ?: 0.0,
+            onDismiss = { showSetAlertDialog = false },
+            onSetAlert = { price ->
+                showSetAlertDialog = false
+                onSetAlert(symbol, price)
+                // Show success message
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Price alert set for $symbol at ${formatCurrency(price)}")
+                }
+            }
+        )
+    }
 }
 
 @Composable
-fun RowScope.StockTimeRangeButton(
+fun TimeRangeButton(
     text: String,
-    selected: Boolean,
+    isSelected: Boolean,
     onClick: () -> Unit
 ) {
     Button(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
         ),
-        modifier = Modifier.weight(1f),
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
+        modifier = Modifier.height(36.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+    ) {
+        Text(text = text, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+fun DetailRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
-            text = text,
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Visible
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold
         )
     }
 }
 
-private fun formatCurrency(value: Double): String {
+fun formatCurrency(value: Double): String {
     val format = NumberFormat.getCurrencyInstance(Locale.US)
     return format.format(value)
 }
 
-private fun formatPercentage(value: Double): String {
-    return String.format("%.2f%%", value * 100)
+fun formatPercentage(value: Double): String {
+    val prefix = if (value >= 0) "+" else ""
+    return "$prefix${String.format("%.2f", value)}%"
 }
 
-private fun formatVolume(volume: Long): String {
-    return when {
-        volume >= 1_000_000_000 -> String.format("%.2fB", volume / 1_000_000_000.0)
-        volume >= 1_000_000 -> String.format("%.2fM", volume / 1_000_000.0)
-        volume >= 1_000 -> String.format("%.2fK", volume / 1_000.0)
-        else -> volume.toString()
-    }
-}
-
-private fun formatMarketCap(marketCap: Double): String {
-    return when {
-        marketCap >= 1_000_000_000_000 -> String.format("$%.2fT", marketCap / 1_000_000_000_000)
-        marketCap >= 1_000_000_000 -> String.format("$%.2fB", marketCap / 1_000_000_000)
-        marketCap >= 1_000_000 -> String.format("$%.2fM", marketCap / 1_000_000)
-        else -> formatCurrency(marketCap)
-    }
-}
-
-private fun formatAxisDate(timestamp: Long): String {
-    val calendar = java.util.Calendar.getInstance()
-    val now = java.util.Calendar.getInstance()
-    calendar.timeInMillis = timestamp
-    
-    // Sprawdź czy timestamp jest z tego samego dnia
-    val isSameDay = calendar.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR) && 
-                   calendar.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR)
-    
-    // Dla danych intraday pokazuj godziny
-    if (isSameDay || now.timeInMillis - timestamp < 24 * 60 * 60 * 1000) {
-        return java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(timestamp)
+fun formatNumber(value: Double): String {
+    val suffix = when {
+        value >= 1_000_000_000 -> "B"
+        value >= 1_000_000 -> "M"
+        value >= 1_000 -> "K"
+        else -> ""
     }
     
-    // Dla codziennych danych pokazuj datę
-    return java.text.SimpleDateFormat("MM/dd", java.util.Locale.getDefault()).format(timestamp)
-}
-
-@Composable
-fun PriceSummary(
-    stock: com.example.stockcryptotracker.data.Stock,
-    priceHistory: List<com.example.stockcryptotracker.data.PricePoint>,
-    timeRange: String
-) {
-    if (priceHistory.isEmpty()) return
-    
-    // Oblicz zmianę procentową dla wybranego zakresu
-    val firstPrice = priceHistory.firstOrNull()?.price ?: 0.0
-    val lastPrice = priceHistory.lastOrNull()?.price ?: 0.0
-    val currentPrice = stock.price
-    
-    // Jeśli mamy zbyt małą ilość danych, zwłaszcza dla krótkiego okresu, użyj standardowej zmiany
-    val priceChangePercent = if (priceHistory.size < 3 && timeRange == "1") {
-        // Dla bardzo krótkiego zakresu z małą ilością danych użyj zmiany 24h
-        stock.changePercent * 100
-    } else if (firstPrice > 0) {
-        val rawChange = ((lastPrice - firstPrice) / firstPrice) * 100
-        // Ogranicz maksymalną wartość zmiany procentowej dla bardzo krótkich okresów
-        if (timeRange == "1" && kotlin.math.abs(rawChange) > 10.0) {
-            if (rawChange > 0) 9.99 else -9.99
-        } else {
-            // Dodatkowa weryfikacja: jeśli zmiana jest nieprawdopodobnie duża, ogranicz ją
-            val reasonableMaxChange = when(timeRange) {
-                "1" -> 10.0  // 10% dla 1h
-                "24" -> 20.0 // 20% dla 24h
-                "7" -> 50.0  // 50% dla tygodnia
-                "30" -> 100.0 // 100% dla miesiąca
-                "90", "1Y" -> 200.0 // 200% dla dłuższych okresów
-                else -> 300.0
-            }
-            if (kotlin.math.abs(rawChange) > reasonableMaxChange) {
-                if (rawChange > 0) reasonableMaxChange else -reasonableMaxChange
-            } else {
-                rawChange
-            }
-        }
-    } else {
-        0.0
+    val divValue = when {
+        value >= 1_000_000_000 -> value / 1_000_000_000
+        value >= 1_000_000 -> value / 1_000_000
+        value >= 1_000 -> value / 1_000
+        else -> value
     }
     
-    // Określ kolor na podstawie trendu
-    val trendColor = if (priceChangePercent >= 0) {
-        Color(0xFF4CAF50) // Zielony dla rosnącego trendu
-    } else {
-        Color(0xFFF44336) // Czerwony dla spadającego trendu
-    }
-    
-    // Oblicz minimalną i maksymalną cenę z zakresu, uwzględniając aktualną cenę
-    var minPrice = priceHistory.minOfOrNull { it.price } ?: currentPrice
-    var maxPrice = priceHistory.maxOfOrNull { it.price } ?: currentPrice
-    
-    // Upewnij się, że aktualna cena mieści się w zakresie min-max
-    // Jeśli nie, to dane historyczne mogą być niepełne lub nieprawidłowe
-    if (currentPrice < minPrice) minPrice = currentPrice
-    if (currentPrice > maxPrice) maxPrice = currentPrice
-    
-    // Weryfikacja wartości min/max - nie powinny się różnić o więcej niż X% od aktualnej ceny
-    val maxDiffFactor = when(timeRange) {
-        "1" -> 0.15  // 15% dla 1h
-        "24" -> 0.25 // 25% dla 24h
-        "7" -> 0.50  // 50% dla tygodnia
-        "30" -> 1.0  // 100% dla miesiąca
-        "90" -> 1.5  // 150% dla 3 miesięcy
-        "1Y" -> 2.0  // 200% dla roku
-        else -> 3.0  // 300% dla innych okresów
-    }
-    
-    // Jeśli min/max wartości są zbyt odległe od aktualnej ceny, ogranicz je
-    val lowerBound = currentPrice * (1 - maxDiffFactor)
-    val upperBound = currentPrice * (1 + maxDiffFactor)
-    
-    if (minPrice < lowerBound) minPrice = lowerBound
-    if (maxPrice > upperBound) maxPrice = upperBound
-    
-    // Zakres cenowy dla wybranego okresu
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        // Min
-        Column(horizontalAlignment = Alignment.Start) {
-            Text(
-                text = "Min",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = formatCurrency(minPrice),
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Medium
-            )
-        }
-        
-        // Zmiana w okresie
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = getTimeRangeLabel(timeRange),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = formatPriceChange(priceChangePercent),
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Medium,
-                color = trendColor
-            )
-        }
-        
-        // Max
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = "Max",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = formatCurrency(maxPrice),
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Medium
-            )
-        }
-    }
-}
-
-// Funkcja pomocnicza do formatowania zmiany ceny
-private fun formatPriceChange(percentage: Double): String {
-    return if (percentage >= 0) {
-        "+${String.format("%.2f", percentage)}%"
-    } else {
-        "${String.format("%.2f", percentage)}%"
-    }
-}
-
-// Funkcja pomocnicza do wyświetlania opisu zakresu czasowego
-private fun getTimeRangeLabel(timeRange: String): String {
-    return when(timeRange) {
-        "1" -> "Last hour"
-        "24" -> "Last 24 hours"
-        "7" -> "Last 7 days"
-        "30" -> "Last 30 days"
-        "90" -> "Last 90 days"
-        "1Y" -> "Last year"
-        else -> timeRange
-    }
+    return String.format("%.2f%s", divValue, suffix)
 } 

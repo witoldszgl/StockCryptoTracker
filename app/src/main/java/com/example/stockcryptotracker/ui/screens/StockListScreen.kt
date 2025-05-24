@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -53,6 +55,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.stockcryptotracker.data.Stock
 import com.example.stockcryptotracker.network.StockSearchResult
+import com.example.stockcryptotracker.ui.screens.DataSourceBanner
 import com.example.stockcryptotracker.viewmodel.StockCategory
 import com.example.stockcryptotracker.viewmodel.StockViewModel
 import java.text.NumberFormat
@@ -70,18 +73,20 @@ fun StockListScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
+    val isUsingMockData by viewModel.isUsingMockData.collectAsState()
+    val isUsingSavedData by viewModel.isUsingSavedData.collectAsState()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Stock Market") },
+                title = { Text(text = "Stock Market") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 ),
                 actions = {
                     // Add refresh button
-                    IconButton(onClick = { viewModel.refreshStocks() }) {
+                    IconButton(onClick = { viewModel.loadStocks() }) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "Refresh"
@@ -100,7 +105,7 @@ fun StockListScreen(
             TextField(
                 value = searchQuery,
                 onValueChange = { viewModel.updateSearchQuery(it) },
-                placeholder = { Text("Search stocks...") },
+                placeholder = { Text(text = "Search stocks...") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
@@ -174,9 +179,9 @@ fun StockListScreen(
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             Button(
-                                onClick = { viewModel.refreshStocks() }
+                                onClick = { viewModel.loadStocks() }
                             ) {
-                                Text("Try Again")
+                                Text(text = "Try Again")
                             }
                         }
                     }
@@ -184,18 +189,33 @@ fun StockListScreen(
                         LazyColumn(
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(searchResults) { result ->
-                                SearchResultItem(
-                                    result = result,
-                                    onClick = {
-                                        // Fetch stock details and navigate
-                                        viewModel.getStockDetail(result.symbol) { stockResult ->
-                                            stockResult.onSuccess {
-                                                onNavigateToDetail(result.symbol)
-                                            }
-                                        }
-                                    }
+                            item {
+                                DataSourceBanner(
+                                    isVisible = isUsingMockData,
+                                    isUsingMockData = isUsingMockData,
+                                    isUsingSavedData = isUsingSavedData,
+                                    onRefreshClick = { viewModel.tryUsingRealData() }
                                 )
+                            }
+                            
+                            if (searchQuery.isNotEmpty() && !isLoading) {
+                                items(searchResults) { result ->
+                                    SearchResultItem(
+                                        result = result,
+                                        onClick = {
+                                            onNavigateToDetail(result.symbol)
+                                        }
+                                    )
+                                }
+                            } else {
+                                items(stockList) { stock ->
+                                    StockListItem(
+                                        stock = stock,
+                                        onItemClick = { onNavigateToDetail(stock.symbol) },
+                                        isFavorite = viewModel.isFavorite(stock.symbol).collectAsState().value,
+                                        onFavoriteClick = { viewModel.toggleFavorite(stock) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -217,13 +237,20 @@ fun StockListScreen(
                         LazyColumn(
                             modifier = Modifier.fillMaxSize()
                         ) {
+                            item {
+                                DataSourceBanner(
+                                    isVisible = isUsingMockData,
+                                    isUsingMockData = isUsingMockData,
+                                    isUsingSavedData = isUsingSavedData,
+                                    onRefreshClick = { viewModel.tryUsingRealData() }
+                                )
+                            }
+                            
                             items(stockList) { stock ->
-                                val isFavorite by viewModel.isFavorite(stock.symbol).collectAsState(initial = false)
-                                
                                 StockListItem(
                                     stock = stock,
                                     onItemClick = { onNavigateToDetail(stock.symbol) },
-                                    isFavorite = isFavorite,
+                                    isFavorite = viewModel.isFavorite(stock.symbol).collectAsState().value,
                                     onFavoriteClick = { viewModel.toggleFavorite(stock) }
                                 )
                             }
@@ -258,7 +285,7 @@ fun StockListItem(
         ) {
             // Stock logo
             AsyncImage(
-                model = stock.logoUrl,
+                model = stock.image,
                 contentDescription = "${stock.name} logo",
                 modifier = Modifier
                     .width(40.dp)
@@ -286,12 +313,6 @@ fun StockListItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                
-                Text(
-                    text = stock.exchange,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                    fontSize = 12.sp
-                )
             }
             
             // Price and change
@@ -300,27 +321,26 @@ fun StockListItem(
                 modifier = Modifier.padding(end = 8.dp)
             ) {
                 Text(
-                    text = formatCurrency(stock.price),
+                    text = formatCurrency(stock.currentPrice),
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
                 )
                 
+                val changeColor = if (stock.priceChangePercentage24h >= 0) 
+                    Color(0xFF4CAF50) else Color(0xFFE53935)
+                
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val changeColor = if (stock.change >= 0) Color(0xFF4CAF50) else Color(0xFFF44336)
-                    val changeIcon = if (stock.change >= 0) 
-                        Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown
-                    
                     Icon(
-                        imageVector = changeIcon,
-                        contentDescription = null,
+                        imageVector = if (stock.priceChangePercentage24h >= 0) 
+                            Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Change direction",
                         tint = changeColor,
-                        modifier = Modifier.height(16.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    
                     Text(
-                        text = "${String.format("%.2f", stock.change)} (${String.format("%.2f", stock.changePercent * 100)}%)",
+                        text = "%.2f%%".format(stock.priceChangePercentage24h),
                         color = changeColor,
                         fontSize = 14.sp
                     )
@@ -334,7 +354,7 @@ fun StockListItem(
                 Icon(
                     imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
                     contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
-                    tint = if (isFavorite) Color(0xFFFFC107) else MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = if (isFavorite) Color(0xFFFFD700) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
             }
         }
@@ -377,7 +397,7 @@ fun SearchResultItem(
                 )
                 
                 Text(
-                    text = result.exchange,
+                    text = result.securityType,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                     fontSize = 12.sp
                 )
@@ -392,7 +412,12 @@ fun SearchResultItem(
     }
 }
 
-private fun formatCurrency(value: Double): String {
+private fun formatCurrencyPrice(value: Double): String {
     val format = NumberFormat.getCurrencyInstance(Locale.US)
     return format.format(value)
+}
+
+private fun formatPercentageChange(value: Double): String {
+    val prefix = if (value >= 0) "+" else ""
+    return "$prefix${String.format("%.2f", value)}%"
 } 

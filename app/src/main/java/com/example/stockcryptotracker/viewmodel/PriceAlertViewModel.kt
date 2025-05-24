@@ -42,6 +42,9 @@ class PriceAlertViewModel(application: Application) : AndroidViewModel(applicati
     val allAlerts: StateFlow<List<PriceAlert>>
     val filteredAlerts: StateFlow<List<PriceAlert>>
     
+    private val _alerts = MutableStateFlow<Map<String, Double>>(emptyMap())
+    val alerts: StateFlow<Map<String, Double>> = _alerts.asStateFlow()
+    
     init {
         Log.d("PriceAlertViewModel", "Initializing")
         val database = CryptoDatabase.getDatabase(application)
@@ -157,5 +160,45 @@ class PriceAlertViewModel(application: Application) : AndroidViewModel(applicati
     
     private fun formatPrice(price: Double): String {
         return NumberFormat.getCurrencyInstance(Locale.US).format(price)
+    }
+    
+    fun setPriceAlert(symbol: String, targetPrice: Double) {
+        viewModelScope.launch {
+            try {
+                // Here you would typically save this to a database or shared preferences
+                val currentAlerts = _alerts.value.toMutableMap()
+                currentAlerts[symbol] = targetPrice
+                _alerts.value = currentAlerts
+                
+                Log.d("PriceAlertViewModel", "Set price alert for $symbol at \$$targetPrice")
+                
+                // In a real app, you would register this with the notification system
+                // or a worker to periodically check if the price threshold has been reached
+            } catch (e: Exception) {
+                Log.e("PriceAlertViewModel", "Error setting price alert", e)
+            }
+        }
+    }
+    
+    fun removePriceAlert(symbol: String) {
+        viewModelScope.launch {
+            try {
+                val currentAlerts = _alerts.value.toMutableMap()
+                currentAlerts.remove(symbol)
+                _alerts.value = currentAlerts
+                
+                Log.d("PriceAlertViewModel", "Removed price alert for $symbol")
+            } catch (e: Exception) {
+                Log.e("PriceAlertViewModel", "Error removing price alert", e)
+            }
+        }
+    }
+    
+    fun hasAlert(symbol: String): Boolean {
+        return _alerts.value.containsKey(symbol)
+    }
+    
+    fun getAlertPrice(symbol: String): Double? {
+        return _alerts.value[symbol]
     }
 } 

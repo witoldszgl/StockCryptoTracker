@@ -62,6 +62,7 @@ import coil.compose.AsyncImage
 import com.example.stockcryptotracker.data.CryptoCurrency
 import com.example.stockcryptotracker.data.PriceHistoryPoint
 import com.example.stockcryptotracker.ui.components.PriceAlertDialog
+import com.example.stockcryptotracker.ui.components.CryptoPriceAlertDialog
 import com.example.stockcryptotracker.viewmodel.PriceAlertViewModel
 import com.patrykandpatrick.vico.compose.axis.horizontal.rememberBottomAxis
 import com.patrykandpatrick.vico.compose.axis.vertical.rememberStartAxis
@@ -150,7 +151,7 @@ fun CryptoDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(cryptoDetail?.name ?: "Cryptocurrency Details") },
+                title = { Text(text = cryptoDetail?.name ?: "Cryptocurrency Details") },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -190,7 +191,7 @@ fun CryptoDetailScreen(
                         Button(
                             onClick = { viewModel.fetchCryptoDetail(cryptoId) }
                         ) {
-                            Text("Try Again")
+                            Text(text = "Try Again")
                         }
                         
                         Spacer(modifier = Modifier.height(8.dp))
@@ -202,7 +203,7 @@ fun CryptoDetailScreen(
                                 containerColor = MaterialTheme.colorScheme.secondary
                             )
                         ) {
-                            Text("Test with Bitcoin (BTC)")
+                            Text(text = "Test with Bitcoin (BTC)")
                         }
                     }
                 }
@@ -253,7 +254,7 @@ fun CryptoDetailScreen(
                                 horizontalAlignment = Alignment.End
                             ) {
                                 Text(
-                                    text = formatCurrency(crypto.currentPrice),
+                                    text = formatCryptoPrice(crypto.currentPrice),
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -265,7 +266,7 @@ fun CryptoDetailScreen(
                                 }
                                 
                                 Text(
-                                    text = formatPercentage(crypto.priceChangePercentage24h),
+                                    text = formatCryptoPercentage(crypto.priceChangePercentage24h),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = priceChangeColor
                                 )
@@ -282,7 +283,7 @@ fun CryptoDetailScreen(
                                 contentDescription = "Notifications",
                                 modifier = Modifier.padding(end = 8.dp)
                             )
-                            Text("Set Price Alert")
+                            Text(text = "Set Price Alert")
                         }
                         
                         Spacer(modifier = Modifier.height(16.dp))
@@ -401,22 +402,22 @@ fun CryptoDetailScreen(
                                 
                                 StatRow(
                                     label = "Market Cap", 
-                                    value = formatCurrency(crypto.marketCap.toDouble())
+                                    value = formatCryptoPrice(crypto.marketCap.toDouble())
                                 )
                                 
                                 StatRow(
                                     label = "24h Volume", 
-                                    value = formatCurrency(crypto.totalVolume)
+                                    value = formatCryptoPrice(crypto.totalVolume)
                                 )
                                 
                                 StatRow(
                                     label = "24h High", 
-                                    value = formatCurrency(crypto.high24h)
+                                    value = formatCryptoPrice(crypto.high24h)
                                 )
                                 
                                 StatRow(
                                     label = "24h Low", 
-                                    value = formatCurrency(crypto.low24h)
+                                    value = formatCryptoPrice(crypto.low24h)
                                 )
                             }
                         }
@@ -424,7 +425,7 @@ fun CryptoDetailScreen(
                     
                     // Show price alert dialog
                     if (showSetAlertDialog && cryptoDetail != null) {
-                        PriceAlertDialog(
+                        CryptoPriceAlertDialog(
                             cryptoCurrency = crypto,
                             currentPrice = crypto.currentPrice,
                             onDismiss = { showSetAlertDialog = false },
@@ -558,12 +559,12 @@ private fun getTimeRangeLabel(timeRange: TimeRange): String {
     }
 }
 
-private fun formatCurrency(amount: Double): String {
+private fun formatCryptoPrice(amount: Double): String {
     val format = NumberFormat.getCurrencyInstance(Locale.US)
     return format.format(amount)
 }
 
-private fun formatPercentage(percentage: Double): String {
+private fun formatCryptoPercentage(percentage: Double): String {
     return if (percentage >= 0) {
         "+${String.format("%.2f", percentage)}%"
     } else {
@@ -665,7 +666,7 @@ fun PriceSummary(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = formatCurrency(minPrice),
+                text = formatCryptoPrice(minPrice),
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium
             )
@@ -679,7 +680,7 @@ fun PriceSummary(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = formatPercentage(priceChangePercent),
+                text = formatCryptoPercentage(priceChangePercent),
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium,
                 color = trendColor
@@ -694,7 +695,7 @@ fun PriceSummary(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = formatCurrency(maxPrice),
+                text = formatCryptoPrice(maxPrice),
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium
             )

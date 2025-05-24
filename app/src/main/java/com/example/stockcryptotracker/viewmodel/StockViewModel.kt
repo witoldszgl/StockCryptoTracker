@@ -1,11 +1,18 @@
 package com.example.stockcryptotracker.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.stockcryptotracker.data.PriceHistoryPoint
 import com.example.stockcryptotracker.data.Stock
+import com.example.stockcryptotracker.data.StockCache
+import com.example.stockcryptotracker.data.TimeRange
 import com.example.stockcryptotracker.data.room.CryptoDatabase
+import com.example.stockcryptotracker.network.PolygonRetrofitClient
+import com.example.stockcryptotracker.network.PolygonTickerItem
 import com.example.stockcryptotracker.network.StockSearchResult
+import com.example.stockcryptotracker.repository.PolygonRepository
 import com.example.stockcryptotracker.repository.StockFavoritesRepository
 import com.example.stockcryptotracker.repository.StockRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,13 +27,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharingStarted
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.delay
+import java.util.concurrent.TimeUnit
 
-@OptIn(kotlinx.coroutines.FlowPreview::class)
 class StockViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = StockRepository()
     private val favoritesRepository: StockFavoritesRepository
+    private val polygonRepository = PolygonRepository(PolygonRetrofitClient.polygonApiService)
+    private val stockCache = StockCache(application.applicationContext)
+    
+    // Lista symboli do pobierania z Polygon
+    private val polygonSymbols = listOf("AAPL", "GOOGL")
     
     private val _allStockList = MutableStateFlow<List<Stock>>(emptyList())
+    val allStockList: StateFlow<List<Stock>> = _allStockList.asStateFlow()
     
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -40,8 +53,20 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
     
+    // Add a state flow to expose when mock data is being used
+    private val _isUsingMockData = MutableStateFlow(false)
+    val isUsingMockData: StateFlow<Boolean> = _isUsingMockData.asStateFlow()
+    
+    // Add a state flow to expose when using saved data
+    private val _isUsingSavedData = MutableStateFlow(false)
+    val isUsingSavedData: StateFlow<Boolean> = _isUsingSavedData.asStateFlow()
+    
     private val _searchResults = MutableStateFlow<List<StockSearchResult>>(emptyList())
     val searchResults: StateFlow<List<StockSearchResult>> = _searchResults.asStateFlow()
+    
+    // Dodaj StateFlow dla wyników wyszukiwania z Polygon
+    private val _polygonSearchResults = MutableStateFlow<List<PolygonTickerItem>>(emptyList())
+    val polygonSearchResults: StateFlow<List<PolygonTickerItem>> = _polygonSearchResults.asStateFlow()
     
     private val _favoriteIds = MutableStateFlow<List<String>>(emptyList())
     val favoriteIds: StateFlow<List<String>> = _favoriteIds.asStateFlow()
@@ -53,6 +78,30 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     // Cache for favorite status to prevent UI flickering
     private val favoriteStatusCache = ConcurrentHashMap<String, MutableStateFlow<Boolean>>()
     
+    private val _stockDetail = MutableStateFlow<Stock?>(null)
+    val stockDetail: StateFlow<Stock?> = _stockDetail
+
+    private val _priceHistory = MutableStateFlow<List<PriceHistoryPoint>>(emptyList())
+    val priceHistory: StateFlow<List<PriceHistoryPoint>> = _priceHistory
+
+    private val _isLoadingPriceHistory = MutableStateFlow(false)
+    val isLoadingPriceHistory: StateFlow<Boolean> = _isLoadingPriceHistory
+
+    private val _selectedTimeRange = MutableStateFlow(TimeRange.DAYS_7)
+    val selectedTimeRange: StateFlow<TimeRange> = _selectedTimeRange
+    
+    // StateFlow dla ostatniej oferty (bid/ask)
+    private val _lastQuote = MutableStateFlow<Pair<Double, Double>?>(null) // Pair(bid, ask)
+    val lastQuote: StateFlow<Pair<Double, Double>?> = _lastQuote
+    
+    // StateFlow dla danych Open/Close
+    private val _dailyOpenClose = MutableStateFlow<Triple<Double, Double, Long>?>(null) // Triple(open, close, volume)
+    val dailyOpenClose: StateFlow<Triple<Double, Double, Long>?> = _dailyOpenClose
+    
+    // StateFlow dla ulubionych akcji
+    private val _favoriteStocks = MutableStateFlow<List<Stock>>(emptyList())
+    val favoriteStocks: StateFlow<List<Stock>> = _favoriteStocks.asStateFlow()
+    
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     val stockList: StateFlow<List<Stock>> = combine(
         _allStockList,
@@ -63,9 +112,9 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         // Apply category filter
         when (selectedCategory) {
             StockCategory.ALL -> allStocks
-            StockCategory.MOST_ACTIVE -> allStocks.sortedByDescending { it.volume ?: 0 }.take(15)
-            StockCategory.TOP_GAINERS -> allStocks.sortedByDescending { it.changePercent }.take(15)
-            StockCategory.TOP_LOSERS -> allStocks.sortedBy { it.changePercent }.take(15)
+            StockCategory.MOST_ACTIVE -> allStocks.sortedByDescending { it.totalVolume }.take(15)
+            StockCategory.TOP_GAINERS -> allStocks.sortedByDescending { it.priceChangePercentage24h }.take(15)
+            StockCategory.TOP_LOSERS -> allStocks.sortedBy { it.priceChangePercentage24h }.take(15)
         }
     }.stateIn(
         viewModelScope,
@@ -86,6 +135,8 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
                     _favoriteIds.value = it
                     // Update cache when favorite list changes
                     updateFavoriteCache(it)
+                    // Pobierz ulubione akcje przy każdej zmianie listy ulubionych
+                    loadFavoriteStocks(it)
                 }
         }
     }
@@ -104,6 +155,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
             searchStocks(query)
         } else if (query.isEmpty()) {
             _searchResults.value = emptyList()
+            _polygonSearchResults.value = emptyList()
             loadStocks() // Reload default stocks list
         }
     }
@@ -113,6 +165,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
             _selectedCategory.value = category
             _searchQuery.value = ""
             _searchResults.value = emptyList()
+            _polygonSearchResults.value = emptyList()
             loadStocks()
         }
     }
@@ -151,6 +204,49 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
                 favoritesRepository.addToFavorites(stock)
                 // Update cache immediately to prevent UI delay
                 favoriteStatusCache[stock.symbol]?.value = true
+                
+                // Zapisz dane o akcji do cache'u
+                stockCache.saveStocks(listOf(stock))
+            }
+        }
+    }
+    
+    /**
+     * Pobiera ulubione akcje z cache'u lub API
+     */
+    fun loadFavoriteStocks(favoriteIds: List<String>) {
+        viewModelScope.launch {
+            if (favoriteIds.isEmpty()) {
+                _favoriteStocks.value = emptyList()
+                return@launch
+            }
+            
+            // Najpierw spróbuj pobrać dane z cache'u
+            val cachedStocks = stockCache.getStocks(favoriteIds)
+            
+            if (cachedStocks.isNotEmpty()) {
+                Log.d("StockViewModel", "Using cached data for favorites: ${cachedStocks.size} stocks")
+                _favoriteStocks.value = cachedStocks
+                return@launch
+            }
+            
+            // Jeśli cache jest pusty, pobierz dane z API
+            Log.d("StockViewModel", "Cache miss for favorites, loading from API")
+            val result = mutableListOf<Stock>()
+            
+            for (symbol in favoriteIds) {
+                try {
+                    val stock = polygonRepository.getStockDetails(symbol)
+                    result.add(stock)
+                } catch (e: Exception) {
+                    Log.e("StockViewModel", "Error loading favorite stock $symbol: ${e.message}")
+                }
+            }
+            
+            if (result.isNotEmpty()) {
+                _favoriteStocks.value = result
+                // Zapisz pobrane dane do cache'u
+                stockCache.saveStocks(result)
             }
         }
     }
@@ -160,79 +256,374 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
             _isLoading.value = true
             _error.value = null
             
-            val result = when (_selectedCategory.value) {
-                StockCategory.ALL -> repository.getAllStocks()
-                StockCategory.MOST_ACTIVE -> repository.getMostActiveStocks()
-                StockCategory.TOP_GAINERS -> repository.getTopGainers()
-                StockCategory.TOP_LOSERS -> repository.getTopLosers()
-            }
-            
-            result.onSuccess { stocks ->
-                _allStockList.value = stocks
-                _isLoading.value = false
-                // Reset retry count on success
-                apiRetryCount = 0
-            }.onFailure { error ->
-                handleApiError(error)
-            }
-        }
-    }
-    
-    // New helper function to handle API errors
-    private fun handleApiError(error: Throwable) {
-        val errorMessage = error.message ?: "Unknown error occurred"
-        
-        // Check if it's a rate limit error
-        if (errorMessage.contains("rate limit", ignoreCase = true) || 
-            errorMessage.contains("429", ignoreCase = true)) {
-            
-            _error.value = "Rate limit exceeded. Please try again later."
-        } else {
-            // For other errors, check if we should retry
-            if (apiRetryCount < MAX_RETRY_COUNT) {
-                apiRetryCount++
-                _error.value = "API error (attempt $apiRetryCount/$MAX_RETRY_COUNT). Retrying..."
-                
-                // Retry after a delay
-                viewModelScope.launch {
-                    delay(2000) // Wait 2 seconds before retry
-                    loadStocks()
+            try {
+                // Używamy Polygon API jako głównego źródła danych
+                try {
+                    Log.d("StockViewModel", "Loading stocks from Polygon API")
+                    val polygonStocks = polygonRepository.getStocksList()
+                    if (polygonStocks.isNotEmpty()) {
+                        _allStockList.value = polygonStocks
+                        _isLoading.value = false
+                        _isUsingSavedData.value = false
+                        apiRetryCount = 0
+                        
+                        // Zapisz pobrane dane do cache'u
+                        stockCache.saveStocks(polygonStocks)
+                        
+                        return@launch
+                    } else {
+                        Log.e("StockViewModel", "Received empty stock list from Polygon API")
+                        _error.value = "No stock data available. Please try again later."
+                    }
+                } catch (e: Exception) {
+                    Log.e("StockViewModel", "Error loading stocks from Polygon API", e)
+                    _error.value = "Failed to load stocks: ${e.message}"
                 }
-            } else {
-                // Max retries reached, show final error
-                _error.value = "Failed to load data after multiple attempts. Please check your connection and try again."
+                
+                // Fallback do StockRepository jeśli Polygon się nie powiódł
+                val stocksResult = repository.getAllStocks()
+                
+                if (stocksResult.isSuccess) {
+                    val stocks = stocksResult.getOrThrow()
+                    _allStockList.value = stocks
+                    _isUsingSavedData.value = false
+                    
+                    // Zapisz pobrane dane do cache'u
+                    stockCache.saveStocks(stocks)
+                } else {
+                    Log.e("StockViewModel", "Failed to load stocks from repository")
+                    _error.value = "Failed to load stocks. Please try again later."
+                }
+                
                 _isLoading.value = false
                 apiRetryCount = 0
+            } catch (e: Exception) {
+                Log.e("StockViewModel", "Error loading stocks", e)
+                _error.value = "Failed to load stocks: ${e.message}"
+                _isUsingSavedData.value = false
+                _isLoading.value = false
+                
+                // Try to reconnect if there are network issues
+                if (apiRetryCount < MAX_RETRY_COUNT) {
+                    apiRetryCount++
+                    Log.d("StockViewModel", "Retrying API call (attempt $apiRetryCount of $MAX_RETRY_COUNT)")
+                    delay(2000) // Wait 2 seconds before retrying
+                    loadStocks() // Recursively retry
+                }
             }
         }
     }
     
-    private fun searchStocks(query: String) {
+    fun searchStocks(query: String) {
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
             
-            repository.searchStocks(query)
-                .onSuccess { results ->
-                    _searchResults.value = results
-                    _isLoading.value = false
+            try {
+                // Wyszukaj używając Polygon.io
+                val polygonResults = polygonRepository.searchTickers(query)
+                _polygonSearchResults.value = polygonResults
+                
+                // Konwertuj wyniki Polygon na format StockSearchResult dla kompatybilności
+                val polygonSearchResults = polygonResults.map { item ->
+                    StockSearchResult(
+                        symbol = item.ticker,
+                        securityName = item.name,
+                        securityType = item.type,
+                        exchange = item.primaryExchange ?: "Unknown"
+                    )
                 }
-                .onFailure { error ->
-                    _error.value = "Error searching: ${error.message ?: "Unknown error"}"
-                    _isLoading.value = false
+                
+                _searchResults.value = polygonSearchResults
+                _isLoading.value = false
+                
+                if (polygonSearchResults.isEmpty()) {
+                    _error.value = "No results found for \"$query\""
                 }
+            } catch (e: Exception) {
+                Log.e("StockViewModel", "Error searching with Polygon", e)
+                _error.value = "Failed to search stocks: ${e.message}"
+                _searchResults.value = emptyList()
+                _isLoading.value = false
+            }
         }
     }
     
-    // New function to allow manual refresh of data
-    fun refreshStocks() {
-        apiRetryCount = 0 // Reset retry count
-        loadStocks()
+    fun loadStockDetail(symbol: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+
+            // Najpierw spróbuj pobrać dane z cache'u
+            val cachedStock = stockCache.getStock(symbol)
+            if (cachedStock != null) {
+                Log.d("StockViewModel", "Using cached data for stock details: $symbol")
+                _stockDetail.value = cachedStock
+                
+                // Załaduj historyczne dane cenowe w tle
+                viewModelScope.launch {
+                    try {
+                        loadPriceHistory(symbol, _selectedTimeRange.value)
+                    } catch (e: Exception) {
+                        Log.e("StockViewModel", "Error loading price history: ${e.message}", e)
+                    }
+                }
+                
+                _isLoading.value = false
+                return@launch
+            }
+
+            // Tworzymy podstawowy obiekt Stock, który będziemy uzupełniać danymi
+            val basicStock = Stock(
+                symbol = symbol,
+                name = symbol, // Tymczasowo używamy symbolu jako nazwy
+                currentPrice = 0.0,
+                priceChangePercentage24h = 0.0,
+                marketCap = 0.0
+            )
+            
+            // Ustawiamy podstawowy obiekt, aby natychmiast coś pokazać
+            _stockDetail.value = basicStock
+            
+            try {
+                // 1. Pobierz podstawowe informacje o spółce
+                Log.d("StockViewModel", "Step 1: Loading basic ticker details for $symbol")
+                try {
+                    val tickerResponse = polygonRepository.polygonApiService.getStockDetails(symbol)
+                    Log.d("StockViewModel", "Ticker details response: ${tickerResponse.status}")
+                    
+                    // Aktualizujemy podstawowe dane
+                    val tickerDetails = tickerResponse.results
+                    _stockDetail.value = _stockDetail.value?.copy(
+                        name = tickerDetails.name,
+                        description = tickerDetails.description,
+                        exchange = tickerDetails.primary_exchange ?: "",
+                        marketCap = tickerDetails.market_cap ?: 0.0,
+                        image = tickerDetails.branding?.logo_url ?: ""
+                    )
+                    
+                } catch (e: Exception) {
+                    Log.e("StockViewModel", "Error getting ticker details: ${e.message}", e)
+                    // Kontynuujemy, aby spróbować pobrać inne dane
+                }
+                
+                // 2. Pobierz dane cenowe
+                Log.d("StockViewModel", "Step 2: Loading price data for $symbol")
+                try {
+                    val today = java.time.LocalDate.now()
+                    val from = today.minusDays(30).format(java.time.format.DateTimeFormatter.ISO_DATE)
+                    val to = today.format(java.time.format.DateTimeFormatter.ISO_DATE)
+                    
+                    val priceResponse = polygonRepository.polygonApiService.getStockAggregates(
+                        symbol = symbol,
+                        multiplier = 1,
+                        timespan = "day",
+                        from = from,
+                        to = to
+                    )
+                    
+                    Log.d("StockViewModel", "Price data response status: OK, results size: ${priceResponse.results?.size ?: 0}")
+                    
+                    // Pobierz najnowsze dane cenowe
+                    val latestBar = priceResponse.results?.lastOrNull()
+                    if (latestBar != null) {
+                        // Znajdź poprzedni punkt, aby obliczyć zmianę
+                        val previousBar = priceResponse.results?.let { 
+                            if (it.size >= 2) it[it.size - 2] else null 
+                        }
+                        
+                        val currentPrice = latestBar.c
+                        val previousPrice = previousBar?.c ?: currentPrice
+                        val priceChange = currentPrice - previousPrice
+                        val priceChangePercentage = if (previousPrice > 0) {
+                            (priceChange / previousPrice) * 100
+                        } else 0.0
+                        
+                        // Aktualizuj dane cenowe
+                        _stockDetail.value = _stockDetail.value?.copy(
+                            currentPrice = currentPrice,
+                            priceChangePercentage24h = priceChangePercentage,
+                            high24h = latestBar.h,
+                            low24h = latestBar.l,
+                            totalVolume = latestBar.v.toDouble()
+                        )
+                        
+                        // Również ustawiamy dane open/close
+                        _dailyOpenClose.value = Triple(
+                            latestBar.o,
+                            latestBar.c,
+                            latestBar.v
+                        )
+                    }
+                    
+                } catch (e: Exception) {
+                    Log.e("StockViewModel", "Error getting price data: ${e.message}", e)
+                }
+                
+                // Zapisz pobrane dane do cache'u
+                _stockDetail.value?.let { stockCache.saveStocks(listOf(it)) }
+                
+                _isUsingSavedData.value = false
+                _isLoading.value = false
+                
+                // 3. Załaduj historyczne dane cenowe po wyświetleniu podstawowych danych
+                viewModelScope.launch {
+                    try {
+                        loadPriceHistory(symbol, _selectedTimeRange.value)
+                    } catch (e: Exception) {
+                        Log.e("StockViewModel", "Error loading price history: ${e.message}", e)
+                        // Nie pokazujemy tego błędu użytkownikowi
+                    }
+                }
+                
+            } catch (e: Exception) {
+                Log.e("StockViewModel", "Error loading stock details: ${e.message}", e)
+                // Pokazujemy dane które udało się pobrać, nawet jeśli są niepełne
+                _isLoading.value = false
+            }
+        }
     }
     
-    fun getStockDetail(symbol: String, onResult: (Result<Stock>) -> Unit) {
+    // Pobierz dodatkowe dane z Polygon (Last Quote i Open/Close)
+    private suspend fun loadAdditionalPolygonData(symbol: String) {
+        try {
+            // Pobierz dane z dostępnego endpointu prev
+            val prevDataResponse = polygonRepository.getStockHistoricalData(symbol, TimeRange.DAYS_7)
+            if (prevDataResponse.isNotEmpty()) {
+                val latestPoint = prevDataResponse.last()
+                val previousPoint = if (prevDataResponse.size >= 2) prevDataResponse[prevDataResponse.size - 2] else null
+                
+                if (previousPoint != null) {
+                    // Dodaj informacje o otwarciu/zamknięciu
+                    _dailyOpenClose.value = Triple(
+                        previousPoint.price,  // otwarcie (używamy ceny z poprzedniego punktu)
+                        latestPoint.price,    // zamknięcie
+                        0L                   // brak danych o wolumenie
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("StockViewModel", "Error loading additional Polygon data", e)
+        }
+    }
+    
+    fun loadPriceHistory(symbol: String, timeRange: TimeRange) {
         viewModelScope.launch {
-            onResult(repository.getStockQuote(symbol))
+            _isLoadingPriceHistory.value = true
+            _selectedTimeRange.value = timeRange
+            
+            try {
+                val history = polygonRepository.getStockHistoricalData(symbol, timeRange)
+                _priceHistory.value = history
+                _isLoadingPriceHistory.value = false
+            } catch (e: Exception) {
+                Log.e("StockViewModel", "Error loading price history from Polygon", e)
+                
+                // Próbuj użyć głównego repozytorium
+                try {
+                    val historyResult = repository.getStockPriceHistory(
+                        symbol, 
+                        if (timeRange == TimeRange.DAYS_90 || timeRange == TimeRange.YEAR_1) "full" else "compact"
+                    )
+                    
+                    if (historyResult.isSuccess) {
+                        // Konwersja z PricePoint do PriceHistoryPoint
+                        val pricePoints = historyResult.getOrThrow()
+                        val historyPoints = pricePoints.map { point ->
+                            PriceHistoryPoint(
+                                timestamp = point.timestamp,
+                                price = point.price
+                            )
+                        }
+                        _priceHistory.value = historyPoints
+                    } else {
+                        _priceHistory.value = emptyList()
+                        _error.value = "Failed to load price history"
+                    }
+                } catch (e2: Exception) {
+                    Log.e("StockViewModel", "Error loading price history from repository", e2)
+                    _priceHistory.value = emptyList()
+                }
+                _isLoadingPriceHistory.value = false
+            }
+        }
+    }
+
+    // Function to reset API and try again with real data
+    fun tryUsingRealData() {
+        _isUsingMockData.value = false
+        _isUsingSavedData.value = false
+        loadStocks()
+    }
+
+    /**
+     * Ładuje akcje z API i aktualizuje cache
+     * Ta metoda powinna być wywoływana przy wejściu do zakładki Stocks
+     */
+    fun loadStocksAndUpdateCache() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            
+            try {
+                Log.d("StockViewModel", "Loading stocks from Polygon API and updating cache")
+                val polygonStocks = polygonRepository.getStocksList()
+                if (polygonStocks.isNotEmpty()) {
+                    _allStockList.value = polygonStocks
+                    
+                    // Zapisz wszystkie pobrane dane do cache'u
+                    stockCache.saveStocks(polygonStocks)
+                    Log.d("StockViewModel", "Successfully updated cache with ${polygonStocks.size} stocks")
+                    
+                    _isLoading.value = false
+                    _isUsingSavedData.value = false
+                    apiRetryCount = 0
+                    return@launch
+                } else {
+                    Log.e("StockViewModel", "Received empty stock list from Polygon API")
+                    _error.value = "No stock data available. Please try again later."
+                }
+            } catch (e: Exception) {
+                Log.e("StockViewModel", "Error loading stocks from Polygon API", e)
+                _error.value = "Failed to load stocks: ${e.message}"
+                
+                // W przypadku błędu, próbujemy użyć danych z cache'u
+                val cachedStocks = stockCache.getAllStocks()
+                if (cachedStocks.isNotEmpty()) {
+                    Log.d("StockViewModel", "Using cached data: ${cachedStocks.size} stocks")
+                    _allStockList.value = cachedStocks
+                    _isUsingSavedData.value = true
+                    _isLoading.value = false
+                    return@launch
+                }
+            }
+            
+            _isLoading.value = false
+        }
+    }
+    
+    /**
+     * Pobiera ulubione akcje tylko z cache'u bez wywoływania API
+     * Ta metoda powinna być używana w zakładce Favorites
+     */
+    fun loadFavoriteStocksFromCache(favoriteIds: List<String>) {
+        viewModelScope.launch {
+            if (favoriteIds.isEmpty()) {
+                _favoriteStocks.value = emptyList()
+                return@launch
+            }
+            
+            // Pobierz dane tylko z cache'u
+            val cachedStocks = stockCache.getStocks(favoriteIds)
+            
+            if (cachedStocks.isNotEmpty()) {
+                Log.d("StockViewModel", "Using cached data for favorites: ${cachedStocks.size} stocks")
+                _favoriteStocks.value = cachedStocks
+            } else {
+                Log.d("StockViewModel", "No cached data found for favorites. Will use API fallback.")
+                // Jeśli nie ma danych w cache, tylko wtedy wywołujemy API
+                loadFavoriteStocks(favoriteIds)
+            }
         }
     }
 } 

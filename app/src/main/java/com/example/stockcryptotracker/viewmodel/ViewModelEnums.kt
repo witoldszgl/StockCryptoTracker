@@ -5,10 +5,10 @@ package com.example.stockcryptotracker.viewmodel
  */
 
 /**
- * Tab enum for navigation between All and Favorites screens
+ * Tab enum for navigation between All, Crypto, Stocks and Favorites screens
  */
 enum class Tab {
-    ALL, FAVORITES
+    ALL, CRYPTO, STOCKS, FAVORITES
 }
 
 /**

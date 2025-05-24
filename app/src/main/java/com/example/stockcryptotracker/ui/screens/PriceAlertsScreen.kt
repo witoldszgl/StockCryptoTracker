@@ -274,7 +274,7 @@ fun AlertListItem(
                     // Price condition
                     val direction = if (alert.isAboveTarget) "rises above" else "falls below"
                     Text(
-                        text = "Alert when price $direction ${formatCurrency(alert.targetPrice)}",
+                        text = "Alert when price $direction ${formatAlertPrice(alert.targetPrice)}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -313,7 +313,7 @@ fun AlertListItem(
     }
 }
 
-private fun formatCurrency(amount: Double): String {
+private fun formatAlertPrice(amount: Double): String {
     val format = NumberFormat.getCurrencyInstance(Locale.US)
     return format.format(amount)
 }

@@ -74,7 +74,7 @@ fun EditStockPortfolioDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     AsyncImage(
-                        model = stock.logoUrl,
+                        model = stock.image,
                         contentDescription = "${stock.name} logo",
                         modifier = Modifier
                             .size(40.dp)
@@ -104,7 +104,7 @@ fun EditStockPortfolioDialog(
                         horizontalAlignment = Alignment.End
                     ) {
                         Text(
-                            text = formatCurrency(stock.price),
+                            text = formatPortfolioPrice(stock.price),
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -151,7 +151,7 @@ fun EditStockPortfolioDialog(
                         )
                         
                         Text(
-                            text = formatCurrency(totalValue),
+                            text = formatPortfolioPrice(totalValue),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -181,7 +181,7 @@ fun EditStockPortfolioDialog(
     )
 }
 
-private fun formatCurrency(amount: Double): String {
+private fun formatPortfolioPrice(amount: Double): String {
     val format = NumberFormat.getCurrencyInstance(Locale.US)
     return format.format(amount)
 } 

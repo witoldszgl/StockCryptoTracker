@@ -61,6 +61,7 @@ import com.example.stockcryptotracker.ui.components.EditStockPortfolioDialog
 import com.example.stockcryptotracker.ui.components.PortfolioListItem
 import com.example.stockcryptotracker.ui.components.PriceAlertDialog
 import com.example.stockcryptotracker.ui.components.StockPriceAlertDialog
+import com.example.stockcryptotracker.ui.components.CryptoPriceAlertDialog
 import com.example.stockcryptotracker.viewmodel.PortfolioItemType
 import com.example.stockcryptotracker.viewmodel.PortfolioItemUiState
 import com.example.stockcryptotracker.viewmodel.PortfolioViewModel
@@ -574,7 +575,7 @@ fun PortfolioScreen(
     // Dialog for setting crypto price alert
     if (showCryptoAlertDialog && selectedCryptoForAlert != null) {
         val crypto = selectedCryptoForAlert!!
-        PriceAlertDialog(
+        CryptoPriceAlertDialog(
             cryptoCurrency = crypto,
             currentPrice = crypto.currentPrice,
             onDismiss = { 

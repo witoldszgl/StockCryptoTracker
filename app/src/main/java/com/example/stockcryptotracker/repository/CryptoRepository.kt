@@ -25,6 +25,21 @@ class CryptoRepository {
         }
     }
     
+    suspend fun getTopCryptos(limit: Int = 100): List<CryptoCurrency> {
+        return try {
+            val result = getCryptocurrencies()
+            if (result.isSuccess) {
+                result.getOrNull()?.take(limit) ?: emptyList()
+            } else {
+                Log.e("CryptoRepository", "Failed to get top cryptos: ${result.exceptionOrNull()?.message}")
+                emptyList()
+            }
+        } catch (e: Exception) {
+            Log.e("CryptoRepository", "Error in getTopCryptos", e)
+            emptyList()
+        }
+    }
+    
     suspend fun getCryptoDetail(id: String): Result<CryptoDetailResponse> {
         return withContext(Dispatchers.IO) {
             try {

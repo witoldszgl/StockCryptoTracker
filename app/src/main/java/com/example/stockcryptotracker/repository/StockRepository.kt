@@ -1,32 +1,35 @@
 package com.example.stockcryptotracker.repository
 
 import android.util.Log
-import com.example.stockcryptotracker.data.Stock
-import com.example.stockcryptotracker.data.toStock
-import com.example.stockcryptotracker.network.AlphaVantageApi
-import com.example.stockcryptotracker.network.StockSearchResult
 import com.example.stockcryptotracker.data.PricePoint
-
-private const val TAG = "StockRepository"
+import com.example.stockcryptotracker.data.Stock
+import com.example.stockcryptotracker.data.TimeRange
+import com.example.stockcryptotracker.network.PolygonRetrofitClient
 
 class StockRepository {
+    companion object {
+        private const val TAG = "StockRepository"
+    }
+    
+    private val polygonRepository = PolygonRepository(PolygonRetrofitClient.polygonApiService)
+    
+    // Lista symboli obsługiwanych przez Polygon
+    private val polygonSymbols = listOf("AAPL", "GOOGL")
+    
     suspend fun getMostActiveStocks(): Result<List<Stock>> {
         return try {
             Log.d(TAG, "Fetching most active stocks")
-            val response = AlphaVantageApi.getMostActiveStocks()
-            if (response.isSuccessful) {
-                val body = response.body()
-                if (body != null) {
-                    val stocks = body.map { it.toStock() }
-                    Log.d(TAG, "Successfully fetched ${stocks.size} most active stocks")
-                    Result.success(stocks.sortedByDescending { it.volume ?: 0 }.take(10))
-                } else {
-                    Log.e(TAG, "Empty response body when fetching most active stocks")
-                    Result.failure(Exception("Empty response body"))
-                }
+            
+            // Pobierz dane z Polygon
+            val stocks = polygonRepository.getStocksList()
+            if (stocks.isNotEmpty()) {
+                // Sortuj według wolumenu
+                val sortedStocks = stocks.sortedByDescending { it.totalVolume }
+                Log.d(TAG, "Successfully fetched ${sortedStocks.size} most active stocks from Polygon")
+                Result.success(sortedStocks)
             } else {
-                Log.e(TAG, "Failed to fetch most active stocks: ${response.message()}")
-                Result.failure(Exception("Failed to fetch active stocks: ${response.message()}"))
+                Log.e(TAG, "No active stocks found from Polygon")
+                Result.failure(Exception("No active stocks found"))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Exception when fetching most active stocks", e)
@@ -37,20 +40,17 @@ class StockRepository {
     suspend fun getTopGainers(): Result<List<Stock>> {
         return try {
             Log.d(TAG, "Fetching top gainers")
-            val response = AlphaVantageApi.getTopStocks()
-            if (response.isSuccessful) {
-                val body = response.body()
-                if (body != null) {
-                    val stocks = body.map { it.toStock() }
-                    Log.d(TAG, "Successfully fetched ${stocks.size} stocks")
-                    Result.success(stocks.sortedByDescending { it.changePercent }.take(10))
-                } else {
-                    Log.e(TAG, "Empty response body when fetching top gainers")
-                    Result.failure(Exception("Empty response body"))
-                }
+            
+            // Pobierz dane z Polygon
+            val stocks = polygonRepository.getStocksList()
+            if (stocks.isNotEmpty()) {
+                // Sortuj według procentowej zmiany ceny (malejąco)
+                val sortedStocks = stocks.sortedByDescending { it.priceChangePercentage24h }
+                Log.d(TAG, "Successfully fetched ${sortedStocks.size} top gainers from Polygon")
+                Result.success(sortedStocks)
             } else {
-                Log.e(TAG, "Failed to fetch top gainers: ${response.message()}")
-                Result.failure(Exception("Failed to fetch top gainers: ${response.message()}"))
+                Log.e(TAG, "No top gainers found from Polygon")
+                Result.failure(Exception("No top gainers found"))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Exception when fetching top gainers", e)
@@ -61,20 +61,17 @@ class StockRepository {
     suspend fun getTopLosers(): Result<List<Stock>> {
         return try {
             Log.d(TAG, "Fetching top losers")
-            val response = AlphaVantageApi.getTopStocks()
-            if (response.isSuccessful) {
-                val body = response.body()
-                if (body != null) {
-                    val stocks = body.map { it.toStock() }
-                    Log.d(TAG, "Successfully fetched ${stocks.size} stocks")
-                    Result.success(stocks.sortedBy { it.changePercent }.take(10))
-                } else {
-                    Log.e(TAG, "Empty response body when fetching top losers")
-                    Result.failure(Exception("Empty response body"))
-                }
+            
+            // Pobierz dane z Polygon
+            val stocks = polygonRepository.getStocksList()
+            if (stocks.isNotEmpty()) {
+                // Sortuj według procentowej zmiany ceny (rosnąco)
+                val sortedStocks = stocks.sortedBy { it.priceChangePercentage24h }
+                Log.d(TAG, "Successfully fetched ${sortedStocks.size} top losers from Polygon")
+                Result.success(sortedStocks)
             } else {
-                Log.e(TAG, "Failed to fetch top losers: ${response.message()}")
-                Result.failure(Exception("Failed to fetch top losers: ${response.message()}"))
+                Log.e(TAG, "No top losers found from Polygon")
+                Result.failure(Exception("No top losers found"))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Exception when fetching top losers", e)
@@ -85,20 +82,14 @@ class StockRepository {
     suspend fun getStockQuote(symbol: String): Result<Stock> {
         return try {
             Log.d(TAG, "Fetching stock quote for $symbol")
-            val response = AlphaVantageApi.getStockQuote(symbol)
-            if (response.isSuccessful) {
-                val body = response.body()
-                if (body != null) {
-                    val stock = body.toStock()
-                    Log.d(TAG, "Successfully fetched quote for $symbol")
-                    Result.success(stock)
-                } else {
-                    Log.e(TAG, "Empty response body when fetching quote for $symbol")
-                    Result.failure(Exception("Empty response body"))
-                }
-            } else {
-                Log.e(TAG, "Failed to fetch stock quote for $symbol: ${response.message()}")
-                Result.failure(Exception("Failed to fetch stock quote: ${response.message()}"))
+            
+            try {
+                val stock = polygonRepository.getStockDetails(symbol)
+                Log.d(TAG, "Successfully fetched quote for $symbol from Polygon")
+                Result.success(stock)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch stock from Polygon for $symbol", e)
+                Result.failure(Exception("Failed to fetch stock quote for $symbol: ${e.message}"))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Exception when fetching stock quote for $symbol", e)
@@ -108,21 +99,32 @@ class StockRepository {
     
     suspend fun getMultipleStocks(symbols: List<String>): Result<List<Stock>> {
         return try {
-            Log.d(TAG, "Fetching multiple stocks: ${symbols.joinToString(", ")}")
-            val response = AlphaVantageApi.getMultipleStocks(symbols)
-            if (response.isSuccessful) {
-                val body = response.body()
-                if (body != null) {
-                    val stocks = body.map { it.toStock() }
-                    Log.d(TAG, "Successfully fetched ${stocks.size} stocks")
-                    Result.success(stocks)
-                } else {
-                    Log.e(TAG, "Empty response body when fetching multiple stocks")
-                    Result.failure(Exception("Empty response body"))
+            Log.d(TAG, "Fetching multiple stocks: ${symbols.joinToString()}")
+            
+            val result = mutableListOf<Stock>()
+            
+            // Fetch all stocks from Polygon
+            try {
+                Log.d(TAG, "Fetching stocks from Polygon")
+                val polygonStocks = polygonRepository.getStocksList()
+                
+                // Filter for requested symbols
+                val filteredStocks = polygonStocks.filter { stock -> 
+                    symbols.contains(stock.symbol) 
                 }
+                
+                result.addAll(filteredStocks)
+                Log.d(TAG, "Successfully fetched ${filteredStocks.size} stocks from Polygon")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching stocks from Polygon", e)
+            }
+            
+            if (result.isEmpty()) {
+                Log.e(TAG, "Failed to fetch any stocks")
+                Result.failure(Exception("Failed to fetch any stocks"))
             } else {
-                Log.e(TAG, "Failed to fetch multiple stocks: ${response.message()}")
-                Result.failure(Exception("Failed to fetch multiple stocks: ${response.message()}"))
+                Log.d(TAG, "Successfully fetched ${result.size} stocks in total")
+                Result.success(result)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Exception when fetching multiple stocks", e)
@@ -130,22 +132,34 @@ class StockRepository {
         }
     }
     
-    suspend fun searchStocks(query: String): Result<List<StockSearchResult>> {
+    suspend fun searchStocks(query: String): Result<List<Stock>> {
         return try {
             Log.d(TAG, "Searching stocks with query: $query")
-            val response = AlphaVantageApi.searchStocks(query)
-            if (response.isSuccessful) {
-                val body = response.body()
-                if (body != null) {
-                    Log.d(TAG, "Successfully found ${body.size} search results for: $query")
-                    Result.success(body)
-                } else {
-                    Log.e(TAG, "Empty response body when searching stocks with query: $query")
-                    Result.failure(Exception("Empty response body"))
+            
+            // Use Polygon to search
+            try {
+                val tickers = polygonRepository.searchTickers(query)
+                
+                // For each ticker, try to get full stock details
+                val stocks = tickers.mapNotNull { ticker ->
+                    try {
+                        polygonRepository.getStockDetails(ticker.ticker)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error fetching details for ${ticker.ticker}", e)
+                        null
+                    }
                 }
-            } else {
-                Log.e(TAG, "Failed to search stocks with query $query: ${response.message()}")
-                Result.failure(Exception("Failed to search stocks: ${response.message()}"))
+                
+                if (stocks.isNotEmpty()) {
+                    Log.d(TAG, "Successfully found ${stocks.size} search results for: $query")
+                    return Result.success(stocks)
+                } else {
+                    Log.e(TAG, "No results found for query: $query")
+                    return Result.failure(Exception("No results found"))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to search stocks with Polygon", e)
+                return Result.failure(Exception("Failed to search stocks"))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Exception when searching stocks with query: $query", e)
@@ -156,22 +170,44 @@ class StockRepository {
     suspend fun getAllStocks(): Result<List<Stock>> {
         return try {
             Log.d(TAG, "Fetching all stocks")
-            val response = AlphaVantageApi.getAllStocks()
-            if (response.isSuccessful) {
-                val body = response.body()
-                if (body != null) {
-                    val stocks = body.map { it.toStock() }
-                    Log.d(TAG, "Successfully fetched ${stocks.size} stocks")
-                    Result.success(stocks)
+            
+            // Fetch stocks from Polygon
+            try {
+                Log.d(TAG, "Fetching stocks from Polygon")
+                val polygonStocks = polygonRepository.getStocksList()
+                
+                if (polygonStocks.isNotEmpty()) {
+                    Log.d(TAG, "Successfully fetched ${polygonStocks.size} stocks from Polygon")
+                    return Result.success(polygonStocks)
                 } else {
-                    Log.e(TAG, "Empty response body when fetching all stocks")
-                    Result.failure(Exception("Empty response body"))
+                    Log.e(TAG, "Polygon returned empty stock list")
+                    
+                    // Create basic stock data for some popular symbols as fallback
+                    val basicStocks = listOf(
+                        Stock(symbol = "AAPL", name = "Apple Inc.", currentPrice = 0.0, priceChangePercentage24h = 0.0, marketCap = 3000000000000.0),
+                        Stock(symbol = "GOOGL", name = "Alphabet Inc.", currentPrice = 0.0, priceChangePercentage24h = 0.0, marketCap = 1500000000000.0),
+                        Stock(symbol = "MSFT", name = "Microsoft Corporation", currentPrice = 0.0, priceChangePercentage24h = 0.0, marketCap = 2800000000000.0),
+                        Stock(symbol = "AMZN", name = "Amazon.com Inc.", currentPrice = 0.0, priceChangePercentage24h = 0.0, marketCap = 1700000000000.0),
+                        Stock(symbol = "META", name = "Meta Platforms Inc.", currentPrice = 0.0, priceChangePercentage24h = 0.0, marketCap = 1000000000000.0)
+                    )
+                    
+                    Log.d(TAG, "Returning basic stock data as fallback")
+                    return Result.success(basicStocks)
                 }
-            } else {
-                val errorBody = response.errorBody()?.string() ?: "Unknown error"
-                val errorCode = response.code()
-                Log.e(TAG, "Failed to fetch all stocks: HTTP $errorCode - $errorBody")
-                Result.failure(Exception("Failed to fetch all stocks: HTTP $errorCode - $errorBody"))
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching stocks from Polygon", e)
+                
+                // Create basic stock data for some popular symbols as fallback
+                val basicStocks = listOf(
+                    Stock(symbol = "AAPL", name = "Apple Inc.", currentPrice = 0.0, priceChangePercentage24h = 0.0, marketCap = 3000000000000.0),
+                    Stock(symbol = "GOOGL", name = "Alphabet Inc.", currentPrice = 0.0, priceChangePercentage24h = 0.0, marketCap = 1500000000000.0),
+                    Stock(symbol = "MSFT", name = "Microsoft Corporation", currentPrice = 0.0, priceChangePercentage24h = 0.0, marketCap = 2800000000000.0),
+                    Stock(symbol = "AMZN", name = "Amazon.com Inc.", currentPrice = 0.0, priceChangePercentage24h = 0.0, marketCap = 1700000000000.0),
+                    Stock(symbol = "META", name = "Meta Platforms Inc.", currentPrice = 0.0, priceChangePercentage24h = 0.0, marketCap = 1000000000000.0)
+                )
+                
+                Log.d(TAG, "Returning basic stock data as fallback after error")
+                return Result.success(basicStocks)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Exception when fetching all stocks", e)
@@ -182,23 +218,22 @@ class StockRepository {
     suspend fun getStockPriceHistory(symbol: String, outputSize: String = "compact"): Result<List<PricePoint>> {
         return try {
             Log.d(TAG, "Fetching price history for $symbol")
-            val days = when (outputSize) {
-                "full" -> 365
-                else -> 30
-            }
-            val response = AlphaVantageApi.getStockPriceHistory(symbol, days)
-            if (response.isSuccessful) {
-                val body = response.body()
-                if (body != null) {
-                    Log.d(TAG, "Successfully fetched ${body.size} price points for $symbol")
-                    Result.success(body)
-                } else {
-                    Log.e(TAG, "Empty response body when fetching price history for $symbol")
-                    Result.failure(Exception("Empty response body"))
+            
+            // Use Polygon for all symbols
+            try {
+                Log.d(TAG, "Using Polygon API for $symbol price history")
+                val timeRange = if (outputSize == "full") TimeRange.YEAR_1 else TimeRange.DAYS_30
+                val priceHistory = polygonRepository.getStockHistoricalData(symbol, timeRange)
+                
+                // Convert PriceHistoryPoint to PricePoint
+                val pricePoints = priceHistory.map { 
+                    PricePoint(timestamp = it.timestamp, price = it.price) 
                 }
-            } else {
-                Log.e(TAG, "Failed to fetch price history for $symbol: ${response.message()}")
-                Result.failure(Exception("Failed to fetch price history: ${response.message()}"))
+                
+                return Result.success(pricePoints)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch price history from Polygon for $symbol", e)
+                return Result.failure(Exception("Failed to fetch price history"))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Exception when fetching price history for $symbol", e)
@@ -209,19 +244,21 @@ class StockRepository {
     suspend fun getStockIntraday24h(symbol: String): Result<List<PricePoint>> {
         return try {
             Log.d(TAG, "Fetching 24h intraday data for $symbol")
-            val response = AlphaVantageApi.getStockIntraday24h(symbol)
-            if (response.isSuccessful) {
-                val body = response.body()
-                if (body != null) {
-                    Log.d(TAG, "Successfully fetched ${body.size} intraday points for $symbol")
-                    Result.success(body)
-                } else {
-                    Log.e(TAG, "Empty response body when fetching intraday data for $symbol")
-                    Result.failure(Exception("Empty response body"))
+            
+            // Use Polygon for all symbols
+            try {
+                Log.d(TAG, "Using Polygon API for $symbol intraday data")
+                val priceHistory = polygonRepository.getStockHistoricalData(symbol, TimeRange.HOUR_24)
+                
+                // Convert PriceHistoryPoint to PricePoint
+                val pricePoints = priceHistory.map { 
+                    PricePoint(timestamp = it.timestamp, price = it.price) 
                 }
-            } else {
-                Log.e(TAG, "Failed to fetch intraday data for $symbol: ${response.message()}")
-                Result.failure(Exception("Failed to fetch intraday data: ${response.message()}"))
+                
+                return Result.success(pricePoints)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch intraday data from Polygon for $symbol", e)
+                return Result.failure(Exception("Failed to fetch intraday data"))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Exception when fetching intraday data for $symbol", e)

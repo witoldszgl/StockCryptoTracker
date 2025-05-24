@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.stockcryptotracker.data.CryptoCurrency
 import com.example.stockcryptotracker.data.Stock
+import com.example.stockcryptotracker.data.StockCache
 import com.example.stockcryptotracker.data.room.CryptoDatabase
 import com.example.stockcryptotracker.data.room.PortfolioItem
 import com.example.stockcryptotracker.data.room.StockPortfolioItem
@@ -13,6 +14,8 @@ import com.example.stockcryptotracker.repository.CryptoRepository
 import com.example.stockcryptotracker.repository.PortfolioRepository
 import com.example.stockcryptotracker.repository.StockPortfolioRepository
 import com.example.stockcryptotracker.repository.StockRepository
+import com.example.stockcryptotracker.network.PolygonRetrofitClient
+import com.example.stockcryptotracker.repository.PolygonRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +30,8 @@ import java.util.Locale
 class PortfolioViewModel(application: Application) : AndroidViewModel(application) {
     private val cryptoRepository = CryptoRepository()
     private val stockRepository = StockRepository()
+    private val polygonRepository = PolygonRepository(PolygonRetrofitClient.polygonApiService)
+    private val stockCache = StockCache(application.applicationContext)
     private lateinit var portfolioRepository: PortfolioRepository
     private lateinit var stockPortfolioRepository: StockPortfolioRepository
     
@@ -226,58 +231,64 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
     }
     
     fun loadData() {
+        loadCryptoList()
+        loadStocksList()
+    }
+    
+    private fun loadCryptoList() {
         viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            
             try {
-                Log.d("PortfolioViewModel", "Loading data started")
-                _isLoading.value = true
-                _error.value = null
+                Log.d("PortfolioViewModel", "Loading crypto list")
+                val cryptoList = cryptoRepository.getTopCryptos(250)
+                _allCryptoList.value = cryptoList
+                _isLoading.value = false
+                updatePortfolioValue()
+            } catch (e: Exception) {
+                Log.e("PortfolioViewModel", "Error loading crypto list", e)
+                _error.value = "Failed to load cryptocurrencies: ${e.message}"
+                _isLoading.value = false
+            }
+        }
+    }
+    
+    private fun loadStocksList() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            
+            try {
+                // Load stocks from StockRepository
+                Log.d("PortfolioViewModel", "Loading stocks from StockRepository")
+                val stocksResult = stockRepository.getAllStocks()
                 
-                // Load cryptocurrencies
-                try {
-                    Log.d("PortfolioViewModel", "Loading cryptocurrencies")
-                    cryptoRepository.getCryptocurrencies()
-                        .onSuccess { cryptocurrencies ->
-                            Log.d("PortfolioViewModel", "Successfully loaded ${cryptocurrencies.size} cryptocurrencies")
-                            _allCryptoList.value = cryptocurrencies
-                        }
-                        .onFailure { error ->
-                            Log.e("PortfolioViewModel", "Failed to load cryptocurrencies", error)
-                            _error.value = error.message ?: "Error loading cryptocurrencies"
-                        }
-                } catch (e: Exception) {
-                    Log.e("PortfolioViewModel", "Exception loading cryptocurrencies", e)
-                    _error.value = "Failed to load cryptocurrencies: ${e.message}"
-                    _allCryptoList.value = emptyList()
+                if (stocksResult.isSuccess) {
+                    val stocks = stocksResult.getOrThrow()
+                    _allStocksList.value = stocks
+                    _isLoading.value = false
+                    updatePortfolioValue()
+                    return@launch
                 }
                 
-                // Load stocks
-                try {
-                    Log.d("PortfolioViewModel", "Loading stocks")
-                    stockRepository.getAllStocks()
-                        .onSuccess { stocks ->
-                            Log.d("PortfolioViewModel", "Successfully loaded ${stocks.size} stocks")
-                            _allStocksList.value = stocks
-                            _isLoading.value = false
-                        }
-                        .onFailure { error ->
-                            Log.e("PortfolioViewModel", "Failed to load stocks", error)
-                            _error.value = (_error.value ?: "") + "\nError loading stocks: ${error.message}"
-                            _isLoading.value = false
-                        }
-                } catch (e: Exception) {
-                    Log.e("PortfolioViewModel", "Exception loading stocks", e)
-                    _error.value = (_error.value ?: "") + "\nFailed to load stocks: ${e.message}"
-                    _allStocksList.value = emptyList()
+                // If StockRepository failed, try Polygon directly
+                Log.d("PortfolioViewModel", "Loading stocks from Polygon")
+                val polygonStocks = polygonRepository.getStocksList()
+                
+                if (polygonStocks.isNotEmpty()) {
+                    _allStocksList.value = polygonStocks
+                    _isLoading.value = false
+                    updatePortfolioValue()
+                } else {
+                    Log.e("PortfolioViewModel", "No stocks received from Polygon")
+                    _error.value = "Failed to load stocks. Please try again later."
                     _isLoading.value = false
                 }
-                
-                Log.d("PortfolioViewModel", "Updating portfolio value")
-                updatePortfolioValue()
-                Log.d("PortfolioViewModel", "Loading data completed")
             } catch (e: Exception) {
-                Log.e("PortfolioViewModel", "Unexpected error in loadData", e)
+                Log.e("PortfolioViewModel", "Error loading stocks list", e)
+                _error.value = "Failed to load stocks: ${e.message}"
                 _isLoading.value = false
-                _error.value = "Unexpected error: ${e.message}"
             }
         }
     }
@@ -390,6 +401,38 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
     private fun formatCurrency(amount: Double): String {
         val format = NumberFormat.getCurrencyInstance(Locale.US)
         return format.format(amount)
+    }
+    
+    /**
+     * Ładuje akcje dla portfolio z cache'u zamiast z API
+     * Ta metoda powinna być używana w zakładce Portfolio
+     */
+    fun loadPortfolioItemsFromCache() {
+        viewModelScope.launch {
+            // Najpierw pobieramy symbole akcji w portfolio
+            if (::stockPortfolioRepository.isInitialized) {
+                val portfolioItems = _stockPortfolioItems.value
+                if (portfolioItems.isEmpty()) {
+                    // Jeśli nie ma akcji w portfolio, nie ma co pobierać
+                    return@launch
+                }
+                
+                val symbols = portfolioItems.map { it.symbol }
+                
+                // Próbujemy pobrać dane z cache'u
+                val cachedStocks = stockCache.getStocks(symbols)
+                if (cachedStocks.isNotEmpty()) {
+                    Log.d("PortfolioViewModel", "Loaded ${cachedStocks.size} stocks from cache for portfolio")
+                    _allStocksList.value = cachedStocks
+                    updatePortfolioValue()
+                    return@launch
+                }
+                
+                // Jeśli nie znaleziono danych w cache, załaduj z API jako fallback
+                Log.d("PortfolioViewModel", "No cached data for portfolio stocks, loading from API")
+                loadStocksList()
+            }
+        }
     }
 }
 

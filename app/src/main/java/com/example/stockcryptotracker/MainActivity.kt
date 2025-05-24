@@ -209,8 +209,8 @@ class MainActivity : ComponentActivity() {
 fun CryptoApp() {
     val navController = rememberNavController()
     val cryptoViewModel: CryptoViewModel = viewModel()
-    val portfolioViewModel: PortfolioViewModel = viewModel()
     val stockViewModel: StockViewModel = viewModel()
+    val portfolioViewModel: PortfolioViewModel = viewModel()
     val priceAlertViewModel: PriceAlertViewModel = viewModel()
     
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -229,12 +229,21 @@ fun CryptoApp() {
             currentRoute == BottomNavItem.FAVORITES.route -> {
                 // No need to set Tab here as it's done in FavoritesScreen
                 selectedNavItem = BottomNavItem.FAVORITES
+                // Pobierz ulubione akcje z cache'u (bez wywoływania API)
+                val favoriteIds = stockViewModel.favoriteIds.value
+                if (favoriteIds.isNotEmpty()) {
+                    stockViewModel.loadFavoriteStocksFromCache(favoriteIds)
+                }
             }
             currentRoute == BottomNavItem.PORTFOLIO.route -> {
                 selectedNavItem = BottomNavItem.PORTFOLIO
+                // Tutaj również używamy cache'u zamiast API
+                portfolioViewModel.loadPortfolioItemsFromCache()
             }
             currentRoute == BottomNavItem.STOCKS.route -> {
                 selectedNavItem = BottomNavItem.STOCKS
+                // Przy wejściu do zakładki Stocks, aktualizujemy cache
+                stockViewModel.loadStocksAndUpdateCache()
             }
             currentRoute == BottomNavItem.ALERTS.route -> {
                 selectedNavItem = BottomNavItem.ALERTS
@@ -275,8 +284,8 @@ fun CryptoApp() {
                                         contentDescription = item.title
                                     )
                                     BottomNavItem.ALERTS -> {
-                                        val activeAlerts by priceAlertViewModel.allAlerts.collectAsState()
-                                        val activeAlertsCount = activeAlerts.filter { it.isActive }.size
+                                        val activeAlerts by priceAlertViewModel.alerts.collectAsState()
+                                        val activeAlertsCount = activeAlerts.size
                                         
                                         if (activeAlertsCount > 0) {
                                             BadgedBox(
@@ -347,7 +356,7 @@ fun CryptoApp() {
                     onNavigateToDetail = { symbol ->
                         navController.navigate("stock_detail/$symbol")
                     },
-                    viewModel = stockViewModel
+                    viewModel = viewModel()
                 )
             }
             
@@ -360,7 +369,7 @@ fun CryptoApp() {
                         navController.navigate("stock_detail/$symbol")
                     },
                     cryptoViewModel = cryptoViewModel,
-                    stockViewModel = stockViewModel
+                    stockViewModel = viewModel()
                 )
             }
             
@@ -410,6 +419,11 @@ fun CryptoApp() {
                     symbol = symbol,
                     onBackClick = {
                         navController.popBackStack()
+                    },
+                    viewModel = viewModel(),
+                    alertViewModel = priceAlertViewModel,
+                    onSetAlert = { symbol, price -> 
+                        priceAlertViewModel.setPriceAlert(symbol, price)
                     }
                 )
             }

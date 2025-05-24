@@ -5,6 +5,6 @@ package com.example.stockcryptotracker.data
  */
 data class PriceHistoryPoint(
     val timestamp: Long,
-    val date: String,
+    val date: String = "",
     val price: Double
 ) 

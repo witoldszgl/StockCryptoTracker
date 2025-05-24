@@ -66,13 +66,7 @@ fun FavoritesScreen(
     cryptoViewModel.setSelectedTab(Tab.FAVORITES)
     
     val cryptoList by cryptoViewModel.cryptoList.collectAsState()
-    val stockFavoriteIds by stockViewModel.favoriteIds.collectAsState(initial = emptyList())
-    val stockList by stockViewModel.stockList.collectAsState()
-    
-    // Filter favorite stocks
-    val favoriteStocks = stockList.filter { stock ->
-        stockFavoriteIds.contains(stock.symbol)
-    }
+    val favoriteStocks by stockViewModel.favoriteStocks.collectAsState()
     
     val cryptoIsLoading by cryptoViewModel.isLoading.collectAsState()
     val stockIsLoading by stockViewModel.isLoading.collectAsState()
@@ -253,7 +247,7 @@ private fun FavoriteStockItem(
                 modifier = Modifier.padding(end = 8.dp)
             ) {
                 Text(
-                    text = formatCurrency(stock.price),
+                    text = formatFavoritePrice(stock.price),
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
                 )
@@ -294,7 +288,7 @@ private fun FavoriteStockItem(
     }
 }
 
-private fun formatCurrency(value: Double): String {
+private fun formatFavoritePrice(value: Double): String {
     val format = NumberFormat.getCurrencyInstance(Locale.US)
     return format.format(value)
 } 

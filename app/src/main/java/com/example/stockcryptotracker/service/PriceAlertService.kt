@@ -152,7 +152,7 @@ class PriceAlertWorker(
     }
     
     private fun checkStockAlert(alert: PriceAlert, stock: Stock) {
-        val currentPrice = stock.price ?: 0.0
+        val currentPrice = stock.price
         
         val isTriggered = if (alert.isAboveTarget) {
             currentPrice >= alert.targetPrice
