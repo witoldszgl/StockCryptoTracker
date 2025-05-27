@@ -37,20 +37,45 @@ class StockCache(private val context: Context) {
             // Stwórz nową mapę z istniejących danych
             val stockMap = existingData?.stocks?.toMutableMap() ?: mutableMapOf()
             
-            // Dodaj/aktualizuj dane o akcjach
+            // Dodaj/aktualizuj tylko akcje z prawidłowymi cenami
             stocks.forEach { stock ->
-                // Upewnij się, że wszystkie pola są prawidłowo ustawione
-                val updatedStock = stock.copy(
-                    price = stock.currentPrice.takeIf { it > 0 } ?: stock.price,
-                    currentPrice = stock.currentPrice.takeIf { it > 0 } ?: stock.price,
-                    change = stock.change.takeIf { it != 0.0 } ?: (stock.currentPrice * stock.priceChangePercentage24h / 100.0),
-                    changePercent = stock.changePercent.takeIf { it != 0.0 } ?: stock.priceChangePercentage24h / 100.0,
-                    volume = stock.volume.takeIf { it > 0 } ?: stock.totalVolume.toLong(),
-                    totalVolume = stock.totalVolume.takeIf { it > 0 } ?: stock.volume.toDouble(),
-                    logoUrl = stock.logoUrl.takeIf { it.isNotEmpty() } ?: stock.image,
-                    image = stock.image.takeIf { it.isNotEmpty() } ?: stock.logoUrl
-                )
-                stockMap[stock.symbol] = updatedStock
+                // Sprawdź, czy akcja ma prawidłowe ceny
+                if (stock.currentPrice > 0.0 || stock.price > 0.0) {
+                    // Upewnij się, że wszystkie pola są prawidłowo ustawione
+                    val updatedStock = stock.copy(
+                        price = stock.currentPrice.takeIf { it > 0 } ?: stock.price,
+                        currentPrice = stock.currentPrice.takeIf { it > 0 } ?: stock.price,
+                        change = stock.change.takeIf { it != 0.0 } ?: (stock.currentPrice * stock.priceChangePercentage24h / 100.0),
+                        changePercent = stock.changePercent.takeIf { it != 0.0 } ?: stock.priceChangePercentage24h / 100.0,
+                        volume = stock.volume.takeIf { it > 0 } ?: stock.totalVolume.toLong(),
+                        totalVolume = stock.totalVolume.takeIf { it > 0 } ?: stock.volume.toDouble(),
+                        logoUrl = stock.logoUrl.takeIf { it.isNotEmpty() } ?: stock.image,
+                        image = stock.image.takeIf { it.isNotEmpty() } ?: stock.logoUrl
+                    )
+                    
+                    // Zachowaj poprzednie dane, jeśli nowe są zerowe
+                    val existingStock = stockMap[stock.symbol]
+                    if (existingStock != null) {
+                        val mergedStock = updatedStock.copy(
+                            currentPrice = updatedStock.currentPrice.takeIf { it > 0 } ?: existingStock.currentPrice,
+                            price = updatedStock.price.takeIf { it > 0 } ?: existingStock.price,
+                            change = updatedStock.change.takeIf { it != 0.0 } ?: existingStock.change,
+                            changePercent = updatedStock.changePercent.takeIf { it != 0.0 } ?: existingStock.changePercent,
+                            volume = updatedStock.volume.takeIf { it > 0 } ?: existingStock.volume,
+                            totalVolume = updatedStock.totalVolume.takeIf { it > 0 } ?: existingStock.totalVolume
+                        )
+                        stockMap[stock.symbol] = mergedStock
+                    } else {
+                        stockMap[stock.symbol] = updatedStock
+                    }
+                } else {
+                    // Jeśli akcja ma zerowe ceny, zachowaj poprzednie dane z cache'u
+                    val existingStock = stockMap[stock.symbol]
+                    if (existingStock != null && (existingStock.currentPrice > 0.0 || existingStock.price > 0.0)) {
+                        // Zachowaj istniejące dane
+                        Log.d(TAG, "Keeping cached data for ${stock.symbol} due to zero prices")
+                    }
+                }
             }
             
             // Zapisz zaktualizowane dane
@@ -60,7 +85,7 @@ class StockCache(private val context: Context) {
             )
             
             cacheFile.writeText(gson.toJson(cacheData))
-            Log.d(TAG, "Saved ${stocks.size} stocks to cache")
+            Log.d(TAG, "Saved ${stockMap.size} stocks to cache")
         } catch (e: Exception) {
             Log.e(TAG, "Error saving stocks to cache", e)
         }

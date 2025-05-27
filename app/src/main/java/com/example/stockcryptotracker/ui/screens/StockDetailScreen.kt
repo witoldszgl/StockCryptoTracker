@@ -29,7 +29,7 @@ import coil.compose.AsyncImage
 import com.example.stockcryptotracker.data.Stock
 import com.example.stockcryptotracker.data.TimeRange
 import com.example.stockcryptotracker.data.PriceHistoryPoint
-import com.example.stockcryptotracker.ui.components.PriceAlertDialog
+import com.example.stockcryptotracker.ui.components.StockPriceAlertDialog
 import com.example.stockcryptotracker.ui.screens.DataSourceBanner
 import com.example.stockcryptotracker.viewmodel.PriceAlertViewModel
 import com.example.stockcryptotracker.viewmodel.StockViewModel
@@ -326,17 +326,18 @@ fun StockDetailScreen(
         }
     }
     
-    if (showSetAlertDialog) {
-        PriceAlertDialog(
-            symbol = symbol,
-            currentPrice = stockDetail?.currentPrice ?: 0.0,
+    if (showSetAlertDialog && stockDetail != null) {
+        StockPriceAlertDialog(
+            stock = stockDetail!!,
+            currentPrice = stockDetail!!.currentPrice,
             onDismiss = { showSetAlertDialog = false },
-            onSetAlert = { price ->
+            onSetAlert = { targetPrice: Double, isAboveTarget: Boolean ->
+                alertViewModel.addStockAlert(
+                    stock = stockDetail!!,
+                    targetPrice = targetPrice,
+                    isAboveTarget = isAboveTarget
+                )
                 showSetAlertDialog = false
-                onSetAlert(symbol, price)
-                coroutineScope.launch {
-                    snackbarHostState.showSnackbar("Price alert set for $symbol at ${formatCurrency(price)}")
-                }
             }
         )
     }

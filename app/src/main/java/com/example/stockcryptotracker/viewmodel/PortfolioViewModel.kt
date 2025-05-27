@@ -10,7 +10,7 @@ import com.example.stockcryptotracker.data.StockCache
 import com.example.stockcryptotracker.data.room.CryptoDatabase
 import com.example.stockcryptotracker.data.room.CryptoPortfolioItem
 import com.example.stockcryptotracker.data.room.StockPortfolioItem
-import com.example.stockcryptotracker.repository.CryptoRepository
+import com.example.stockcryptotracker.repository.CryptoCompareRepository
 import com.example.stockcryptotracker.repository.CryptoPortfolioRepository
 import com.example.stockcryptotracker.repository.StockPortfolioRepository
 import com.example.stockcryptotracker.repository.StockRepository
@@ -28,7 +28,7 @@ import java.text.NumberFormat
 import java.util.Locale
 
 class PortfolioViewModel(application: Application) : AndroidViewModel(application) {
-    private val cryptoRepository = CryptoRepository()
+    private val cryptoRepository = CryptoCompareRepository()
     private val stockRepository = StockRepository()
     private val polygonRepository = PolygonRepository(PolygonRetrofitClient.polygonApiService)
     private val stockCache = StockCache(application.applicationContext)
@@ -242,7 +242,7 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
             
             try {
                 Log.d("PortfolioViewModel", "Loading crypto list")
-                val cryptoList = cryptoRepository.getTopCryptos(250)
+                val cryptoList = cryptoRepository.getAllCryptos()
                 _allCryptoList.value = cryptoList
                 _isLoading.value = false
                 updatePortfolioValue()

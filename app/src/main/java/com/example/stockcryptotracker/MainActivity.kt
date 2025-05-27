@@ -435,10 +435,7 @@ fun MainScreen() {
                     symbol = symbol,
                     onBackClick = { navController.popBackStack() },
                     viewModel = viewModel(),
-                    alertViewModel = priceAlertViewModel,
-                    onSetAlert = { symbol, price -> 
-                        priceAlertViewModel.setPriceAlert(symbol, price)
-                    }
+                    alertViewModel = priceAlertViewModel
                 )
             }
         }
