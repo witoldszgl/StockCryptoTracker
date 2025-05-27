@@ -1,5 +1,6 @@
 package com.example.stockcryptotracker.ui.screens
 
+import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -60,12 +62,14 @@ import com.example.stockcryptotracker.viewmodel.StockCategory
 import com.example.stockcryptotracker.viewmodel.StockViewModel
 import java.text.NumberFormat
 import java.util.Locale
+import com.example.stockcryptotracker.MainActivity
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StockListScreen(
     onNavigateToDetail: (String) -> Unit,
-    viewModel: StockViewModel = viewModel()
+    viewModel: StockViewModel = viewModel(),
+    context: Context
 ) {
     val stockList by viewModel.stockList.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()

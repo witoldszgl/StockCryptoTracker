@@ -8,10 +8,10 @@ import com.example.stockcryptotracker.data.CryptoCurrency
 import com.example.stockcryptotracker.data.Stock
 import com.example.stockcryptotracker.data.StockCache
 import com.example.stockcryptotracker.data.room.CryptoDatabase
-import com.example.stockcryptotracker.data.room.PortfolioItem
+import com.example.stockcryptotracker.data.room.CryptoPortfolioItem
 import com.example.stockcryptotracker.data.room.StockPortfolioItem
 import com.example.stockcryptotracker.repository.CryptoRepository
-import com.example.stockcryptotracker.repository.PortfolioRepository
+import com.example.stockcryptotracker.repository.CryptoPortfolioRepository
 import com.example.stockcryptotracker.repository.StockPortfolioRepository
 import com.example.stockcryptotracker.repository.StockRepository
 import com.example.stockcryptotracker.network.PolygonRetrofitClient
@@ -32,12 +32,12 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
     private val stockRepository = StockRepository()
     private val polygonRepository = PolygonRepository(PolygonRetrofitClient.polygonApiService)
     private val stockCache = StockCache(application.applicationContext)
-    private lateinit var portfolioRepository: PortfolioRepository
+    private lateinit var cryptoPortfolioRepository: CryptoPortfolioRepository
     private lateinit var stockPortfolioRepository: StockPortfolioRepository
     
     // Crypto portfolio data
-    private val _portfolioItems = MutableStateFlow<List<PortfolioItem>>(emptyList())
-    val portfolioItems: StateFlow<List<PortfolioItem>> = _portfolioItems.asStateFlow()
+    private val _cryptoPortfolioItems = MutableStateFlow<List<CryptoPortfolioItem>>(emptyList())
+    val cryptoPortfolioItems: StateFlow<List<CryptoPortfolioItem>> = _cryptoPortfolioItems.asStateFlow()
     
     private val _allCryptoList = MutableStateFlow<List<CryptoCurrency>>(emptyList())
     val allCryptoList: StateFlow<List<CryptoCurrency>> = _allCryptoList.asStateFlow()
@@ -76,7 +76,7 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
     
     // Combined state for crypto portfolio items with current prices
     val cryptoPortfolioItemsWithValue = combine(
-        _portfolioItems,
+        _cryptoPortfolioItems,
         _allCryptoList
     ) { portfolioItems, cryptoList ->
         portfolioItems.map { item ->
@@ -109,9 +109,9 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
     ) { portfolioItems, stocksList ->
         portfolioItems.map { item ->
             val stock = stocksList.find { it.symbol == item.symbol }
-            val currentPrice = stock?.price ?: 0.0
+            val currentPrice = stock?.currentPrice ?: stock?.price ?: 0.0
             val value = item.quantity * currentPrice
-            val logoUrl = stock?.logoUrl
+            val logoUrl = stock?.logoUrl ?: stock?.image
             
             PortfolioItemUiState(
                 id = item.symbol,
@@ -176,7 +176,7 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
         Log.d("PortfolioViewModel", "Initializing PortfolioViewModel")
         try {
             val database = CryptoDatabase.getDatabase(application)
-            portfolioRepository = PortfolioRepository(database.portfolioDao())
+            cryptoPortfolioRepository = CryptoPortfolioRepository(database.cryptoPortfolioDao())
             stockPortfolioRepository = StockPortfolioRepository(database.stockPortfolioDao())
             
             loadData()
@@ -184,15 +184,15 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
             // Observe crypto portfolio items
             viewModelScope.launch {
                 try {
-                    portfolioRepository.getAllPortfolioItems().collect { items ->
+                    cryptoPortfolioRepository.getAllPortfolioItems().collect { items ->
                         Log.d("PortfolioViewModel", "Collected ${items.size} crypto portfolio items")
-                        _portfolioItems.value = items
+                        _cryptoPortfolioItems.value = items
                         updatePortfolioValue()
                     }
                 } catch (e: Exception) {
                     Log.e("PortfolioViewModel", "Error collecting crypto portfolio items", e)
                     _error.value = "Failed to load crypto portfolio: ${e.message}"
-                    _portfolioItems.value = emptyList()
+                    _cryptoPortfolioItems.value = emptyList()
                 }
             }
             
@@ -214,7 +214,7 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
             Log.e("PortfolioViewModel", "Error during PortfolioViewModel initialization", e)
             _error.value = "Failed to initialize: ${e.message}"
             _isLoading.value = false
-            _portfolioItems.value = emptyList()
+            _cryptoPortfolioItems.value = emptyList()
             _allCryptoList.value = emptyList()
             _stockPortfolioItems.value = emptyList()
             _allStocksList.value = emptyList()
@@ -295,8 +295,8 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
     
     // Add or update crypto portfolio item
     fun addUpdateCryptoPortfolioItem(cryptoId: String, quantity: Double) {
-        if (!::portfolioRepository.isInitialized) {
-            Log.e("PortfolioViewModel", "Cannot add item: portfolioRepository not initialized")
+        if (!::cryptoPortfolioRepository.isInitialized) {
+            Log.e("PortfolioViewModel", "Cannot add item: cryptoPortfolioRepository not initialized")
             _error.value = "Application not properly initialized"
             return
         }
@@ -304,7 +304,7 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             val crypto = _allCryptoList.value.find { it.id == cryptoId }
             if (crypto != null) {
-                portfolioRepository.addOrUpdatePortfolioItem(crypto, quantity)
+                cryptoPortfolioRepository.addOrUpdatePortfolioItem(crypto, quantity)
             }
         }
     }
@@ -327,14 +327,14 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
     
     // Remove crypto portfolio item
     fun removeCryptoPortfolioItem(cryptoId: String) {
-        if (!::portfolioRepository.isInitialized) {
-            Log.e("PortfolioViewModel", "Cannot remove item: portfolioRepository not initialized")
+        if (!::cryptoPortfolioRepository.isInitialized) {
+            Log.e("PortfolioViewModel", "Cannot remove item: cryptoPortfolioRepository not initialized")
             _error.value = "Application not properly initialized"
             return
         }
         
         viewModelScope.launch {
-            portfolioRepository.removePortfolioItem(cryptoId)
+            cryptoPortfolioRepository.removePortfolioItem(cryptoId)
         }
     }
     
@@ -364,13 +364,13 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
             var totalValue = 0.0
             
             // Calculate crypto portfolio value
-            if (::portfolioRepository.isInitialized) {
+            if (::cryptoPortfolioRepository.isInitialized) {
                 Log.d("PortfolioViewModel", "Calculating crypto portfolio value")
-                val cryptoItems = _portfolioItems.value
+                val cryptoItems = _cryptoPortfolioItems.value
                 val cryptos = _allCryptoList.value
                 
                 if (cryptoItems.isNotEmpty() && cryptos.isNotEmpty()) {
-                    val cryptoValue = portfolioRepository.calculatePortfolioValue(cryptoItems, cryptos)
+                    val cryptoValue = cryptoPortfolioRepository.calculatePortfolioValue(cryptoItems, cryptos)
                     Log.d("PortfolioViewModel", "Crypto portfolio value: $cryptoValue")
                     totalValue += cryptoValue
                 }
@@ -409,28 +409,41 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
      */
     fun loadPortfolioItemsFromCache() {
         viewModelScope.launch {
-            // Najpierw pobieramy symbole akcji w portfolio
-            if (::stockPortfolioRepository.isInitialized) {
-                val portfolioItems = _stockPortfolioItems.value
-                if (portfolioItems.isEmpty()) {
-                    // Jeśli nie ma akcji w portfolio, nie ma co pobierać
-                    return@launch
+            _isLoading.value = true
+            
+            try {
+                // Najpierw pobieramy symbole akcji w portfolio
+                if (::stockPortfolioRepository.isInitialized) {
+                    val portfolioItems = _stockPortfolioItems.value
+                    if (portfolioItems.isEmpty()) {
+                        // Jeśli nie ma akcji w portfolio, nie ma co pobierać
+                        _isLoading.value = false
+                        return@launch
+                    }
+                    
+                    val symbols = portfolioItems.map { it.symbol }
+                    
+                    // Próbujemy pobrać dane z cache'u
+                    val cachedStocks = stockCache.getStocks(symbols)
+                    if (cachedStocks.isNotEmpty()) {
+                        Log.d("PortfolioViewModel", "Loaded ${cachedStocks.size} stocks from cache for portfolio")
+                        _allStocksList.value = cachedStocks
+                        updatePortfolioValue()
+                    } else {
+                        // Jeśli nie znaleziono danych w cache, załaduj z API jako fallback
+                        Log.d("PortfolioViewModel", "No cached data for portfolio stocks, loading from API")
+                        loadStocksList()
+                    }
                 }
                 
-                val symbols = portfolioItems.map { it.symbol }
+                // Załaduj również dane o kryptowalutach
+                loadCryptoList()
                 
-                // Próbujemy pobrać dane z cache'u
-                val cachedStocks = stockCache.getStocks(symbols)
-                if (cachedStocks.isNotEmpty()) {
-                    Log.d("PortfolioViewModel", "Loaded ${cachedStocks.size} stocks from cache for portfolio")
-                    _allStocksList.value = cachedStocks
-                    updatePortfolioValue()
-                    return@launch
-                }
-                
-                // Jeśli nie znaleziono danych w cache, załaduj z API jako fallback
-                Log.d("PortfolioViewModel", "No cached data for portfolio stocks, loading from API")
-                loadStocksList()
+            } catch (e: Exception) {
+                Log.e("PortfolioViewModel", "Error loading portfolio data from cache", e)
+                _error.value = "Failed to load portfolio data: ${e.message}"
+            } finally {
+                _isLoading.value = false
             }
         }
     }
@@ -451,4 +464,10 @@ data class PortfolioItemUiState(
     val value: Double,
     val imageUrl: String? = null,
     val type: PortfolioItemType
-) 
+) {
+    val formattedPrice: String
+        get() = NumberFormat.getCurrencyInstance(Locale.US).format(price)
+    
+    val formattedValue: String
+        get() = NumberFormat.getCurrencyInstance(Locale.US).format(value)
+} 

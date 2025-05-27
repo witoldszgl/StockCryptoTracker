@@ -37,15 +37,18 @@ class StockCache(private val context: Context) {
             // Stwórz nową mapę z istniejących danych
             val stockMap = existingData?.stocks?.toMutableMap() ?: mutableMapOf()
             
-            // Dodaj/aktualizuj dane o akcjach z uzupełnionymi polami dla FavoritesScreen
+            // Dodaj/aktualizuj dane o akcjach
             stocks.forEach { stock ->
-                // Upewnij się, że wszystkie pola wymagane przez FavoritesScreen są ustawione
+                // Upewnij się, że wszystkie pola są prawidłowo ustawione
                 val updatedStock = stock.copy(
-                    price = stock.currentPrice,
-                    change = stock.currentPrice * stock.priceChangePercentage24h / 100.0,
-                    changePercent = stock.priceChangePercentage24h / 100.0,
-                    volume = stock.totalVolume.toLong(),
-                    logoUrl = stock.image
+                    price = stock.currentPrice.takeIf { it > 0 } ?: stock.price,
+                    currentPrice = stock.currentPrice.takeIf { it > 0 } ?: stock.price,
+                    change = stock.change.takeIf { it != 0.0 } ?: (stock.currentPrice * stock.priceChangePercentage24h / 100.0),
+                    changePercent = stock.changePercent.takeIf { it != 0.0 } ?: stock.priceChangePercentage24h / 100.0,
+                    volume = stock.volume.takeIf { it > 0 } ?: stock.totalVolume.toLong(),
+                    totalVolume = stock.totalVolume.takeIf { it > 0 } ?: stock.volume.toDouble(),
+                    logoUrl = stock.logoUrl.takeIf { it.isNotEmpty() } ?: stock.image,
+                    image = stock.image.takeIf { it.isNotEmpty() } ?: stock.logoUrl
                 )
                 stockMap[stock.symbol] = updatedStock
             }

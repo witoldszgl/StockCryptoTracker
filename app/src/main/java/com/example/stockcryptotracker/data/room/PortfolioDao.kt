@@ -8,25 +8,25 @@ import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-interface PortfolioDao {
+interface CryptoPortfolioDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun addPortfolioItem(portfolioItem: PortfolioItem)
+    suspend fun addPortfolioItem(portfolioItem: CryptoPortfolioItem)
     
     @Update
-    suspend fun updatePortfolioItem(portfolioItem: PortfolioItem)
+    suspend fun updatePortfolioItem(portfolioItem: CryptoPortfolioItem)
     
-    @Query("DELETE FROM portfolio_items WHERE cryptoId = :cryptoId")
+    @Query("DELETE FROM crypto_portfolio_items WHERE cryptoId = :cryptoId")
     suspend fun removePortfolioItem(cryptoId: String)
     
-    @Query("SELECT * FROM portfolio_items ORDER BY lastUpdated DESC")
-    fun getAllPortfolioItems(): Flow<List<PortfolioItem>>
+    @Query("SELECT * FROM crypto_portfolio_items ORDER BY lastUpdated DESC")
+    fun getAllPortfolioItems(): Flow<List<CryptoPortfolioItem>>
     
-    @Query("SELECT * FROM portfolio_items WHERE cryptoId = :cryptoId")
-    fun getPortfolioItem(cryptoId: String): Flow<PortfolioItem?>
+    @Query("SELECT * FROM crypto_portfolio_items WHERE cryptoId = :cryptoId")
+    fun getPortfolioItem(cryptoId: String): Flow<CryptoPortfolioItem?>
     
-    @Query("SELECT EXISTS(SELECT 1 FROM portfolio_items WHERE cryptoId = :cryptoId LIMIT 1)")
+    @Query("SELECT EXISTS(SELECT 1 FROM crypto_portfolio_items WHERE cryptoId = :cryptoId LIMIT 1)")
     fun hasPortfolioItem(cryptoId: String): Flow<Boolean>
     
-    @Query("SELECT SUM(quantity) FROM portfolio_items WHERE cryptoId = :cryptoId")
+    @Query("SELECT SUM(quantity) FROM crypto_portfolio_items WHERE cryptoId = :cryptoId")
     fun getTotalQuantity(cryptoId: String): Flow<Double?>
 } 

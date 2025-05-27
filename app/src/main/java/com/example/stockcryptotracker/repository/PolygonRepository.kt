@@ -143,147 +143,64 @@ class PolygonRepository(
             Log.d(TAG, "Getting stock details for $symbol")
             
             // 1. Pobierz podstawowe informacje o spółce
+            val detailsResponse = polygonApiService.getStockDetails(symbol)
+            Log.d(TAG, "Stock details response status: ${detailsResponse.status}")
+            val details = detailsResponse.results
+            
+            // Create base stock object with details
+            var stock = Stock(
+                symbol = details.ticker,
+                name = details.name,
+                currentPrice = 0.0,
+                priceChangePercentage24h = 0.0,
+                marketCap = details.market_cap ?: 0.0,
+                image = details.branding?.logo_url ?: "",
+                description = details.description,
+                employees = details.totalEmployees ?: 0,
+                listDate = details.listDate,
+                exchange = details.primary_exchange ?: ""
+            )
+            
+            // 2. Try to get price data
             try {
-                val detailsResponse = polygonApiService.getStockDetails(symbol)
-                Log.d(TAG, "Stock details response status: ${detailsResponse.status}")
-                val details = detailsResponse.results
+                val prevDayResponse = polygonApiService.getStockAggregates(
+                    symbol = symbol,
+                    multiplier = 1,
+                    timespan = "day",
+                    from = "2024-01-01",
+                    to = java.time.LocalDate.now().plusDays(1).format(java.time.format.DateTimeFormatter.ISO_DATE)
+                )
                 
-                // 2. Pobierz dane o ostatniej sesji (zamiast last/trade, który wymaga wyższej subskrypcji)
-                try {
-                    val prevDayResponse = polygonApiService.getStockAggregates(
-                        symbol = symbol,
-                        multiplier = 1,
-                        timespan = "day",
-                        from = "2024-01-01", // Ustawiamy szeroki zakres dat, żeby na pewno mieć dane
-                        to = LocalDate.now().plusDays(1).format(DateTimeFormatter.ISO_DATE)
+                Log.d(TAG, "Stock aggregates response received. Results size: ${prevDayResponse.results?.size ?: 0}")
+                
+                // Get the latest data point
+                val latestBar = prevDayResponse.results?.lastOrNull()
+                if (latestBar != null) {
+                    stock = stock.copy(
+                        currentPrice = latestBar.c,
+                        high24h = latestBar.h,
+                        low24h = latestBar.l,
+                        totalVolume = latestBar.v.toDouble(),
+                        price = latestBar.c,
+                        // Calculate price change percentage
+                        priceChangePercentage24h = if (latestBar.o > 0) {
+                            ((latestBar.c - latestBar.o) / latestBar.o) * 100
+                        } else 0.0
                     )
-                    
-                    Log.d(TAG, "Stock aggregates response received. Results size: ${prevDayResponse.results?.size ?: 0}")
-                    
-                    // Pobierz ostatni punkt danych
-                    val latestBar = prevDayResponse.results?.lastOrNull()
-                    
-                    // Jeśli nie ma danych z aggs, spróbuj użyć innego zakresu dat
-                    val prevResponse = if (latestBar == null) {
-                        try {
-                            Log.d(TAG, "No latest bar found, trying alternative date range")
-                            polygonApiService.getStockAggregates(
-                                symbol = symbol, 
-                                multiplier = 1, 
-                                timespan = "day", 
-                                from = LocalDate.now().minusDays(30).format(DateTimeFormatter.ISO_DATE),
-                                to = LocalDate.now().format(DateTimeFormatter.ISO_DATE)
-                            )
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error fetching alternative date range for $symbol", e)
-                            null
-                        }
-                    } else null
-                    
-                    // Użyj danych z najbardziej aktualnego źródła
-                    var currentPrice = latestBar?.c ?: prevResponse?.results?.lastOrNull()?.c ?: 0.0
-                    val previousBar = prevDayResponse.results?.let { if (it.size >= 2) it[it.size - 2] else null }
-                    
-                    // Jeśli cena jest 0, użyj domyślnych wartości dla znanych akcji
-                    if (currentPrice == 0.0) {
-                        currentPrice = getDefaultPrice(symbol)
-                        Log.d(TAG, "Using default price for $symbol: $currentPrice")
-                    }
-                    
-                    // Oblicz zmianę procentową
-                    var previousClose = previousBar?.c ?: 0.0
-                    if (previousClose == 0.0) {
-                        previousClose = currentPrice * 0.99  // Ustaw domyślną poprzednią cenę jako 99% obecnej
-                    }
-                    
-                    val priceChange = if (previousClose > 0) currentPrice - previousClose else 0.0
-                    val priceChangePercentage = if (previousClose > 0) {
-                        (priceChange / previousClose) * 100
-                    } else {
-                        0.0
-                    }
-                    
-                    // Pobierz high/low z ostatnich dostępnych danych
-                    var high24h = latestBar?.h ?: 0.0
-                    var low24h = latestBar?.l ?: 0.0
-                    var volume = latestBar?.v ?: 0L
-                    
-                    // Jeśli nie ma danych high/low, ustaw wartości na podstawie ceny
-                    if (high24h == 0.0) high24h = currentPrice * 1.02  // 2% wyżej niż cena
-                    if (low24h == 0.0) low24h = currentPrice * 0.98    // 2% niżej niż cena
-                    if (volume == 0L) volume = getDefaultVolume(symbol)
-                    
-                    Log.d(TAG, "Final price calculation: currentPrice=$currentPrice, previousClose=$previousClose")
-                    
-                    return Stock(
-                        symbol = details.ticker,
-                        name = details.name,
-                        currentPrice = currentPrice,
-                        priceChangePercentage24h = priceChangePercentage,
-                        marketCap = details.market_cap ?: details.weightedSharesOutstanding?.let { shares -> currentPrice * shares } ?: getDefaultMarketCap(symbol),
-                        image = details.branding?.logo_url ?: "",
-                        high24h = high24h,
-                        low24h = low24h,
-                        totalVolume = volume.toDouble(),
-                        description = details.description,
-                        employees = details.totalEmployees,
-                        exchange = details.primary_exchange ?: "NASDAQ",
-                        listDate = details.listDate
-                    )
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error fetching price data for $symbol", e)
-                    
-                    // Nawet jeśli nie udało się pobrać danych cenowych, zwróć podstawowe informacje o spółce
-                    // z domyślnymi cenami
-                    val defaultPrice = getDefaultPrice(symbol)
-                    return Stock(
-                        symbol = details.ticker,
-                        name = details.name,
-                        currentPrice = defaultPrice,
-                        priceChangePercentage24h = 0.5, // Domyślna wartość: +0.5%
-                        marketCap = details.market_cap ?: getDefaultMarketCap(symbol),
-                        image = details.branding?.logo_url ?: "",
-                        description = details.description,
-                        exchange = details.primary_exchange ?: "NASDAQ",
-                        listDate = details.listDate,
-                        high24h = defaultPrice * 1.02,
-                        low24h = defaultPrice * 0.98,
-                        totalVolume = getDefaultVolume(symbol).toDouble()
-                    )
+                } else {
+                    Log.w(TAG, "No price data available for $symbol")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error fetching details for $symbol", e)
-                // Jeśli nie udało się pobrać nawet podstawowych informacji, stwórz mock
-                val defaultPrice = getDefaultPrice(symbol)
-                return Stock(
-                    symbol = symbol,
-                    name = getDefaultCompanyName(symbol),
-                    currentPrice = defaultPrice,
-                    priceChangePercentage24h = 0.5,
-                    marketCap = getDefaultMarketCap(symbol),
-                    image = "",
-                    high24h = defaultPrice * 1.02,
-                    low24h = defaultPrice * 0.98,
-                    totalVolume = getDefaultVolume(symbol).toDouble(),
-                    exchange = "NASDAQ"
-                )
+                Log.e(TAG, "Error fetching price data for $symbol: ${e.message}", e)
+                // Continue with basic stock data even if price data fails
             }
+            
+            Log.d(TAG, "Returning stock details for $symbol: $stock")
+            return stock
+            
         } catch (e: Exception) {
-            Log.e(TAG, "Error in getStockDetails for $symbol", e)
-            // Zwróć dane z fallbacka
-            val defaultPrice = getDefaultPrice(symbol)
-            return Stock(
-                symbol = symbol,
-                name = getDefaultCompanyName(symbol),
-                currentPrice = defaultPrice,
-                priceChangePercentage24h = 0.5,
-                marketCap = getDefaultMarketCap(symbol),
-                image = "",
-                high24h = defaultPrice * 1.02,
-                low24h = defaultPrice * 0.98,
-                totalVolume = getDefaultVolume(symbol).toDouble(),
-                exchange = "NASDAQ"
-            )
+            Log.e(TAG, "Error fetching stock details for $symbol: ${e.message}", e)
+            throw e
         }
     }
 

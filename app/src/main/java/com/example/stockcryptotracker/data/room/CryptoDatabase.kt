@@ -6,13 +6,19 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [FavoriteCrypto::class, PortfolioItem::class, FavoriteStock::class, StockPortfolioItem::class, PriceAlert::class], 
-    version = 5, 
+    entities = [
+        FavoriteCrypto::class,
+        CryptoPortfolioItem::class,
+        FavoriteStock::class,
+        StockPortfolioItem::class,
+        PriceAlert::class
+    ],
+    version = 6,
     exportSchema = false
 )
 abstract class CryptoDatabase : RoomDatabase() {
     abstract fun favoriteCryptoDao(): FavoriteCryptoDao
-    abstract fun portfolioDao(): PortfolioDao
+    abstract fun cryptoPortfolioDao(): CryptoPortfolioDao
     abstract fun favoriteStockDao(): FavoriteStockDao
     abstract fun stockPortfolioDao(): StockPortfolioDao
     abstract fun priceAlertDao(): PriceAlertDao

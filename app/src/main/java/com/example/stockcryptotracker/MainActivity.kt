@@ -71,6 +71,7 @@ import com.example.stockcryptotracker.viewmodel.PortfolioViewModel
 import com.example.stockcryptotracker.viewmodel.PriceAlertViewModel
 import com.example.stockcryptotracker.viewmodel.StockViewModel
 import com.example.stockcryptotracker.viewmodel.Tab
+import androidx.compose.ui.platform.LocalContext
 
 private const val CHANNEL_ID = "price_alerts"
 
@@ -120,7 +121,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    CryptoApp()
+                    MainScreen()
                 }
             }
         }
@@ -171,7 +172,21 @@ class MainActivity : ComponentActivity() {
         }
     }
     
-    private fun sendTestNotification() {
+    fun sendTestNotification() {
+        // Check for notification permission first
+        if (!checkNotificationPermission()) {
+            requestNotificationPermission()
+            Toast.makeText(
+                this,
+                "Please grant notification permission to receive alerts",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        // Create notification channel first
+        createNotificationChannel()
+        
         // Create an intent for tapping on notification
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -187,8 +202,8 @@ class MainActivity : ComponentActivity() {
         // Build the notification
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("Test Notification")
-            .setContentText("To jest testowe powiadomienie! Działa!")
+            .setContentTitle("Price Alert Test")
+            .setContentText("This is a test notification! It works!")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
@@ -197,8 +212,18 @@ class MainActivity : ComponentActivity() {
         with(NotificationManagerCompat.from(this)) {
             try {
                 notify(1234, builder.build())
+                Toast.makeText(
+                    this@MainActivity,
+                    "Test notification has been sent!",
+                    Toast.LENGTH_SHORT
+                ).show()
             } catch (e: SecurityException) {
-                // Obsługa braku uprawnień do powiadomień
+                // Handle missing notification permission
+                Toast.makeText(
+                    this@MainActivity,
+                    "Error: Missing notification permission",
+                    Toast.LENGTH_LONG
+                ).show()
                 e.printStackTrace()
             }
         }
@@ -206,7 +231,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun CryptoApp() {
+fun MainScreen() {
     val navController = rememberNavController()
     val cryptoViewModel: CryptoViewModel = viewModel()
     val stockViewModel: StockViewModel = viewModel()
@@ -356,7 +381,8 @@ fun CryptoApp() {
                     onNavigateToDetail = { symbol ->
                         navController.navigate("stock_detail/$symbol")
                     },
-                    viewModel = viewModel()
+                    viewModel = viewModel(),
+                    context = LocalContext.current
                 )
             }
             
@@ -375,13 +401,13 @@ fun CryptoApp() {
             
             composable(BottomNavItem.PORTFOLIO.route) {
                 PortfolioScreen(
-                    onNavigateToDetail = { cryptoId ->
-                        navController.navigate("crypto_detail/$cryptoId")
-                    },
-                    onNavigateToStockDetail = { symbol ->
-                        navController.navigate("stock_detail/$symbol")
-                    },
-                    viewModel = portfolioViewModel
+                    onNavigateToDetail = { id, isCrypto ->
+                        if (isCrypto) {
+                            navController.navigate("crypto_detail/$id")
+                        } else {
+                            navController.navigate("stock_detail/$id")
+                        }
+                    }
                 )
             }
             
@@ -390,36 +416,24 @@ fun CryptoApp() {
             }
             
             composable(
-                route = "crypto_detail/{cryptoId}",
-                arguments = listOf(
-                    navArgument("cryptoId") {
-                        type = NavType.StringType
-                    }
-                )
+                "crypto_detail/{cryptoId}",
+                arguments = listOf(navArgument("cryptoId") { type = NavType.StringType })
             ) { backStackEntry ->
-                val cryptoId = backStackEntry.arguments?.getString("cryptoId") ?: ""
+                val cryptoId = backStackEntry.arguments?.getString("cryptoId") ?: return@composable
                 CryptoDetailScreen(
                     cryptoId = cryptoId,
-                    onBackClick = {
-                        navController.popBackStack()
-                    }
+                    onBackClick = { navController.popBackStack() }
                 )
             }
             
             composable(
-                route = "stock_detail/{symbol}",
-                arguments = listOf(
-                    navArgument("symbol") {
-                        type = NavType.StringType
-                    }
-                )
+                "stock_detail/{symbol}",
+                arguments = listOf(navArgument("symbol") { type = NavType.StringType })
             ) { backStackEntry ->
-                val symbol = backStackEntry.arguments?.getString("symbol") ?: ""
+                val symbol = backStackEntry.arguments?.getString("symbol") ?: return@composable
                 StockDetailScreen(
                     symbol = symbol,
-                    onBackClick = {
-                        navController.popBackStack()
-                    },
+                    onBackClick = { navController.popBackStack() },
                     viewModel = viewModel(),
                     alertViewModel = priceAlertViewModel,
                     onSetAlert = { symbol, price -> 

@@ -69,9 +69,10 @@ fun StockDetailScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(symbol) },
+                title = { Text(text = symbol) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
@@ -80,13 +81,11 @@ fun StockDetailScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                actions = {
+                    // Usuwamy przycisk Set Alert z górnego paska
+                }
             )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        }
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -95,32 +94,47 @@ fun StockDetailScreen(
         ) {
             if (isLoading) {
                 CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center)
+                    modifier = Modifier
+                        .size(50.dp)
+                        .align(Alignment.Center)
                 )
             } else if (error != null) {
-                Text(
-                    text = error ?: "Unknown error occurred",
-                    color = MaterialTheme.colorScheme.error,
+                Column(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(16.dp)
-                )
-            } else {
-                stockDetail?.let { stock ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(16.dp)
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = error ?: "An unknown error occurred",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = { viewModel.loadStockDetail(symbol) }
                     ) {
-                        // Add MockDataBanner at the top
-                        DataSourceBanner(
-                            isVisible = isUsingMockData,
-                            isUsingMockData = isUsingMockData,
-                            isUsingSavedData = isUsingSavedData,
-                            onRefreshClick = { viewModel.tryUsingRealData() }
-                        )
-                        
+                        Text("Retry")
+                    }
+                }
+            } else if (stockDetail != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp)
+                ) {
+                    // Add MockDataBanner at the top
+                    DataSourceBanner(
+                        isVisible = isUsingMockData,
+                        isUsingMockData = isUsingMockData,
+                        isUsingSavedData = isUsingSavedData,
+                        onRefreshClick = { viewModel.tryUsingRealData() }
+                    )
+                    
+                    stockDetail?.let { stock ->
                         // Header with stock info
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -320,7 +334,6 @@ fun StockDetailScreen(
             onSetAlert = { price ->
                 showSetAlertDialog = false
                 onSetAlert(symbol, price)
-                // Show success message
                 coroutineScope.launch {
                     snackbarHostState.showSnackbar("Price alert set for $symbol at ${formatCurrency(price)}")
                 }

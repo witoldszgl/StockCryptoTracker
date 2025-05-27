@@ -2,56 +2,56 @@ package com.example.stockcryptotracker.repository
 
 import android.util.Log
 import com.example.stockcryptotracker.data.CryptoCurrency
-import com.example.stockcryptotracker.data.room.PortfolioDao
-import com.example.stockcryptotracker.data.room.PortfolioItem
+import com.example.stockcryptotracker.data.room.CryptoPortfolioDao
+import com.example.stockcryptotracker.data.room.CryptoPortfolioItem
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 
-class PortfolioRepository(private val portfolioDao: PortfolioDao) {
+class CryptoPortfolioRepository(private val cryptoPortfolioDao: CryptoPortfolioDao) {
     
-    fun getAllPortfolioItems(): Flow<List<PortfolioItem>> {
-        return portfolioDao.getAllPortfolioItems()
+    fun getAllPortfolioItems(): Flow<List<CryptoPortfolioItem>> {
+        return cryptoPortfolioDao.getAllPortfolioItems()
     }
     
-    fun getPortfolioItem(cryptoId: String): Flow<PortfolioItem?> {
-        return portfolioDao.getPortfolioItem(cryptoId)
+    fun getPortfolioItem(cryptoId: String): Flow<CryptoPortfolioItem?> {
+        return cryptoPortfolioDao.getPortfolioItem(cryptoId)
     }
     
     fun hasPortfolioItem(cryptoId: String): Flow<Boolean> {
-        return portfolioDao.hasPortfolioItem(cryptoId)
+        return cryptoPortfolioDao.hasPortfolioItem(cryptoId)
     }
     
     suspend fun addOrUpdatePortfolioItem(crypto: CryptoCurrency, quantity: Double) {
-        val currentItem = portfolioDao.getPortfolioItem(crypto.id).first()
+        val currentItem = cryptoPortfolioDao.getPortfolioItem(crypto.id).first()
         
         if (currentItem != null) {
             // Update existing item
-            val updatedItem = PortfolioItem(
+            val updatedItem = CryptoPortfolioItem(
                 cryptoId = currentItem.cryptoId,
                 symbol = currentItem.symbol,
                 name = currentItem.name,
                 quantity = quantity,
                 lastUpdated = System.currentTimeMillis()
             )
-            portfolioDao.updatePortfolioItem(updatedItem)
+            cryptoPortfolioDao.updatePortfolioItem(updatedItem)
         } else {
             // Add new item
-            val newItem = PortfolioItem(
+            val newItem = CryptoPortfolioItem(
                 cryptoId = crypto.id,
                 symbol = crypto.symbol,
                 name = crypto.name,
                 quantity = quantity
             )
-            portfolioDao.addPortfolioItem(newItem)
+            cryptoPortfolioDao.addPortfolioItem(newItem)
         }
     }
     
     suspend fun removePortfolioItem(cryptoId: String) {
-        portfolioDao.removePortfolioItem(cryptoId)
+        cryptoPortfolioDao.removePortfolioItem(cryptoId)
     }
     
     // Calculate portfolio value based on current prices
-    fun calculatePortfolioValue(portfolioItems: List<PortfolioItem>, cryptoCurrencies: List<CryptoCurrency>): Double {
+    fun calculatePortfolioValue(portfolioItems: List<CryptoPortfolioItem>, cryptoCurrencies: List<CryptoCurrency>): Double {
         var totalValue = 0.0
         
         portfolioItems.forEach { item ->
