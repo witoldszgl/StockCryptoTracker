@@ -268,10 +268,8 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
                         // Jeśli mamy dane z cache'u, uzupełnij brakujące ceny
                         val updatedStocks = polygonStocks.map { stock ->
                             if (stock.currentPrice <= 0.0 || stock.price <= 0.0) {
-                                // Znajdź dane w cache'u
                                 val cachedStock = cachedStocks.find { it.symbol == stock.symbol }
                                 if (cachedStock != null && (cachedStock.currentPrice > 0.0 || cachedStock.price > 0.0)) {
-                                    // Użyj danych z cache'u
                                     stock.copy(
                                         currentPrice = cachedStock.currentPrice.takeIf { it > 0.0 } ?: cachedStock.price,
                                         price = cachedStock.price.takeIf { it > 0.0 } ?: cachedStock.currentPrice,

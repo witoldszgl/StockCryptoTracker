@@ -109,7 +109,15 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
     ) { portfolioItems, stocksList ->
         portfolioItems.map { item ->
             val stock = stocksList.find { it.symbol == item.symbol }
-            val currentPrice = stock?.currentPrice ?: stock?.price ?: 0.0
+            var currentPrice = stock?.currentPrice ?: stock?.price ?: 0.0
+            
+            // Jeśli cena jest 0.00, spróbuj pobrać z cache'u
+            if (currentPrice == 0.0) {
+                val cachedStock = stockCache.getStock(item.symbol)
+                currentPrice = cachedStock?.currentPrice ?: cachedStock?.price ?: 0.0
+                Log.d("PortfolioViewModel", "Using cached price for ${item.symbol}: $currentPrice")
+            }
+            
             val value = item.quantity * currentPrice
             val logoUrl = stock?.logoUrl ?: stock?.image
             
@@ -260,24 +268,50 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
             _error.value = null
             
             try {
-                // Load stocks from StockRepository
+                // Najpierw pobieramy symbole akcji w portfolio
+                if (::stockPortfolioRepository.isInitialized) {
+                    val portfolioItems = _stockPortfolioItems.value
+                    if (portfolioItems.isEmpty()) {
+                        // Jeśli nie ma akcji w portfolio, nie ma co pobierać
+                        _isLoading.value = false
+                        return@launch
+                    }
+                    
+                    val symbols = portfolioItems.map { it.symbol }
+                    
+                    // Próbujemy pobrać dane z cache'u
+                    val cachedStocks = stockCache.getStocks(symbols)
+                    if (cachedStocks.isNotEmpty()) {
+                        Log.d("PortfolioViewModel", "Loaded ${cachedStocks.size} stocks from cache for portfolio")
+                        _allStocksList.value = cachedStocks
+                        updatePortfolioValue()
+                        _isLoading.value = false
+                        return@launch
+                    }
+                }
+                
+                // Jeśli nie znaleziono danych w cache lub nie ma portfolio, załaduj z API
                 Log.d("PortfolioViewModel", "Loading stocks from StockRepository")
                 val stocksResult = stockRepository.getAllStocks()
                 
                 if (stocksResult.isSuccess) {
                     val stocks = stocksResult.getOrThrow()
                     _allStocksList.value = stocks
+                    // Zapisz pobrane dane do cache'u
+                    stockCache.saveStocks(stocks)
                     _isLoading.value = false
                     updatePortfolioValue()
                     return@launch
                 }
                 
-                // If StockRepository failed, try Polygon directly
+                // Jeśli StockRepository nie zadziałał, spróbuj bezpośrednio z Polygon
                 Log.d("PortfolioViewModel", "Loading stocks from Polygon")
                 val polygonStocks = polygonRepository.getStocksList()
                 
                 if (polygonStocks.isNotEmpty()) {
                     _allStocksList.value = polygonStocks
+                    // Zapisz pobrane dane do cache'u
+                    stockCache.saveStocks(polygonStocks)
                     _isLoading.value = false
                     updatePortfolioValue()
                 } else {
@@ -403,10 +437,7 @@ class PortfolioViewModel(application: Application) : AndroidViewModel(applicatio
         return format.format(amount)
     }
     
-    /**
-     * Ładuje akcje dla portfolio z cache'u zamiast z API
-     * Ta metoda powinna być używana w zakładce Portfolio
-     */
+
     fun loadPortfolioItemsFromCache() {
         viewModelScope.launch {
             _isLoading.value = true
